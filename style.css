@@ -95,8 +95,7 @@ button { font: inherit; cursor: pointer; color: inherit; }
 #tools { position: fixed; top: 14px; right: 14px; display: flex; flex-direction: column; gap: 8px; z-index: 9; }
 .tool { position: relative; width: 50px; height: 50px; padding: 0; font-size: 23px; line-height: 1; background: var(--panel); border: 3px solid var(--ink); border-radius: 16px; box-shadow: 0 4px 0 rgba(43, 45, 66, 0.3); }
 .tool:active { transform: translateY(3px); box-shadow: 0 1px 0 rgba(43, 45, 66, 0.3); }
-.tool .dot { position: absolute; top: -5px; right: -5px; width: 15px; height: 15px; border-radius: 50%; background: var(--coral); border: 2px solid var(--ink); animation: pulse 1.4s ease-in-out infinite; }
-@keyframes pulse { 50% { transform: scale(1.3); } }
+.tool .dot { position: absolute; top: -5px; right: -5px; width: 15px; height: 15px; border-radius: 50%; background: var(--coral); border: 2px solid var(--ink); }
 #info .lab { margin: 8px 0; padding: 8px 10px; background: #fff; border: 3px dashed var(--teal); border-radius: 14px; font-size: 14.5px; }
 #info .lab p { margin: 4px 0 0; font-size: 14px; }
 .soft.wide { width: 100%; margin-top: 6px; padding: 10px; font-size: 16px; background: var(--sun); }
