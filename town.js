@@ -58,11 +58,25 @@ function layoutLots(needed) {
       for (let j = 0; j < LOTS_Z; j++) {
         const x = c.x - BW / 2 + LOT / 2 + i * LOT;
         const z = c.z - BD / 2 + LOT / 2 + j * LOT;
-        out.push({ x, z, face: j === 0 ? Math.PI : 0, d: Math.hypot(x, z * 1.3) });
+        out.push({ x, z, face: j === 0 ? Math.PI : 0, d: Math.hypot(x, z * 1.3), b: `${bx},${bz}` });
       }
   }
   out.sort((a, b) => a.d - b.d);
   return { lots: out, r };
+}
+
+const STREETS = ["Comet Close", "Rainbow Row", "Magnet Lane", "Fossil Street", "Rocket Road", "Crystal Crescent",
+  "Bubble Avenue", "Planet Parade", "Dino Drive", "Lightning Lane", "Snowflake Street", "Gravity Grove", "Moonbeam Mews",
+  "Seashell Street", "Atom Avenue", "Thunder Terrace", "Prism Place", "Orbit Way", "Pebble Path", "Nebula Drive",
+  "Firefly Lane", "Glacier Gardens", "Starlight Street", "Tornado Turn", "Coral Close", "Meteor Mews", "Echo Lane",
+  "Sunbeam Street", "Galaxy Grove", "Puddle Place"];
+const streetNames = new Map();
+function streetOf(lot) {
+  if (!streetNames.has(lot.b)) {
+    const k = streetNames.size;
+    streetNames.set(lot.b, STREETS[k % STREETS.length] + (k >= STREETS.length ? ` ${Math.floor(k / STREETS.length) + 1}` : ""));
+  }
+  return streetNames.get(lot.b);
 }
 
 // ---------- house design ----------
@@ -333,7 +347,10 @@ function buildTown(houses) {
   const n = houses.length;
   const spare = Math.max(16, Math.ceil(n * 0.1));
   const { lots, r } = layoutLots(n + spare);
+  const fl = new URLSearchParams(location.search).get("lot"); // film only: put house #1 on a chosen lot "x,z"
+  if (fl) { const [fx, fz] = fl.split(",").map(Number); const k = lots.findIndex((l) => l.x === fx && l.z === fz); if (k > 0) [lots[0], lots[k]] = [lots[k], lots[0]]; }
   state.lots = lots;
+  lots.forEach(streetOf);
   state.extent = (r + 1) * PX;
 
   // ground + road + blocks
@@ -465,7 +482,11 @@ let fly = null;
 function flyTo(target, dist = 38) {
   const from = { p: camera.position.clone(), t: controls.target.clone() };
   target = target.clone().setY(2);
-  const to = { t: target.clone(), p: target.clone().add(new THREE.Vector3(dist * 0.5, dist * 0.8, dist * 0.9)) };
+  // look from the outside of town, fairly steep, so Pip's Lab never blocks the view
+  const out = new THREE.Vector3(target.x, 0, target.z);
+  if (out.length() < 1) out.set(0.5, 0, 0.9);
+  out.normalize();
+  const to = { t: target.clone(), p: target.clone().add(new THREE.Vector3(out.x * dist * 0.6, dist * 0.95, out.z * dist * 0.6)) };
   fly = { from, to, t0: performance.now(), dur: 1300 };
 }
 
@@ -487,7 +508,7 @@ function closeModal() { $("modal").classList.add("hidden"); designer.stop(); }
 $("modal").addEventListener("click", (e) => {
   if (e.target.id === "modal" || e.target.closest("[data-close]")) closeModal();
   const o = e.target.closest("[data-open]");
-  if (o) { e.preventDefault(); if (o.dataset.open === "design") openDesigner(); }
+  if (o) { e.preventDefault(); if (o.dataset.open === "design") openDesigner(); if (o.dataset.open === "claim") openClaim(); }
 });
 const tpl = (id) => $(id).content.cloneNode(true);
 $("getHouse").onclick = $("ctaMobile").onclick = () => openModal(tpl("tplGet"));
@@ -502,11 +523,20 @@ function showHouse(i) {
   marker.position.set(lot.x, 10, lot.z); marker.visible = true;
   flyTo(new THREE.Vector3(lot.x, 0, lot.z));
   const g = GADGETS[d.g], p = PETS[d.p];
-  info(`<h3>🏡 @${h.h}</h3>
-    <p>Moved in: ${h.t || "recently"}</p>
+  const welcome = h.pending && new URLSearchParams(location.search).get("new") === "1";
+  if (welcome) confetti();
+  info(`${welcome ? "<h3>🎉 Welcome to Pip's Science Town!</h3>" : ""}<h3>🏡 @${h.h}</h3>
+    <p><b>House #${(i + 1).toLocaleString()}</b> on <b>${streetOf(lot)}</b></p>
+    ${h.pending ? `<p><span class="tag">⚒️ moving in</span> Builders are finishing it. It shows up for everyone within a day.</p>` : `<p>Moved in: ${h.t || "recently"}</p>`}
     <p>Science gadget: ${g.n} ${g.e !== "–" ? g.e : ""}${d.p ? `<br>Pet: ${p.n} ${p.e}` : ""}</p>
-    <button class="soft" id="shareHouse">🔗 Copy link to this house</button>`);
-  $("shareHouse").onclick = () => copy(`${location.origin}${location.pathname}?find=${encodeURIComponent(h.h)}`, "Link copied! Share it with family 💛");
+    <div class="row"><button class="soft" id="storyHouse">📲 Share my house</button><button class="soft" id="shareHouse">🔗 Copy link</button></div>
+    <p class="tiny">Tip: add the link to your Instagram story with the 🔗 Link sticker so friends can visit!</p>`);
+  const link = `${location.origin}${location.pathname}?find=${encodeURIComponent(h.h)}`;
+  $("shareHouse").onclick = () => copy(link, "Link copied! Add it to your story with the Link sticker 💛");
+  $("storyHouse").onclick = async () => {
+    if (navigator.share) { try { await navigator.share({ title: "My house in Pip's Science Town", text: `Come visit our house #${i + 1} on ${streetOf(lot)} in Pip's Science Town! 🏡🔬`, url: link }); return; } catch {} }
+    copy(link, "Link copied! Add it to your story with the Link sticker 💛");
+  };
   history.replaceState(null, "", `?find=${encodeURIComponent(h.h)}`);
 }
 function showSpot(s) {
@@ -541,8 +571,7 @@ async function copy(text, msg) {
 
 function updateGoal() {
   const n = state.houses.length;
-  $("families").textContent = n.toLocaleString();
-  $("familiesWord").textContent = n === 1 ? "family" : "families";
+  document.querySelector(".count").innerHTML = `<b id="families">${n.toLocaleString()}</b> ${n === 1 ? "family lives" : "families live"} here`;
   document.querySelector(".count").innerHTML = n === 0 ? "<b>Be the first family</b> to move in! 🏡" : document.querySelector(".count").innerHTML;
   const next = SPOTS.find((s) => s.at > n);
   if (!next) { $("goalText").textContent = "Every science spot is open! 🎉"; $("goalBar").style.width = "100%"; return; }
@@ -606,13 +635,54 @@ function openDesigner() {
   };
   el.addEventListener("click", (e) => {
     const b = e.target.closest("[data-k]");
-    if (b) { designer.set(b.dataset.k, +b.dataset.v); designer.rebuild(); refresh(); }
+    if (b) { designer.set(b.dataset.k, +b.dataset.v); designer.rebuild(); refresh(); try { localStorage.setItem("pst-design", codeOf(designer.d)); } catch {} }
   });
   el.querySelector("#copyCode").onclick = () => copy(`LAB ${codeOf(designer.d)}`, "Code copied! Now DM it to us on Instagram 💌");
   refresh();
   designer.start(el.querySelector("canvas"));
 }
 $("designBtn").onclick = openDesigner;
+
+// ---------- claim ("Claim my house" button in our DMs) ----------
+const CLAIM_KEY = "pst-claim";
+const readClaim = () => { try { return JSON.parse(localStorage.getItem(CLAIM_KEY) || "null"); } catch { return null; } };
+function openClaim() {
+  const el = document.createElement("div");
+  el.innerHTML = `<h2>🏡 Claim your house</h2>
+    <p>Type the Instagram @ you used to comment or DM <b>LAB</b>.</p>
+    <form class="find" id="claimForm" autocomplete="off"><span>@</span><input id="claimInput" placeholder="your.instagram" aria-label="Your Instagram username" autocapitalize="off" /><button aria-label="Move in">🔑</button></form>
+    <button class="big" id="claimGo">🏡 Move in!</button>
+    <p class="tiny">We only show your public Instagram @ on your door. Never kids' names or photos. Haven't sent LAB yet? <a href="https://www.instagram.com/wonderlabkids.science/" target="_blank" rel="noopener">Comment LAB on our posts</a> so the builders know you're coming!</p>`;
+  openModal(el);
+  const go = (e) => {
+    e?.preventDefault();
+    const h = norm(el.querySelector("#claimInput").value);
+    if (!/^[a-z0-9._]{1,30}$/.test(h)) { toast("That doesn't look like an Instagram username 🤔"); return; }
+    if (!state.byHandle.has(h)) {
+      let d = "";
+      try { d = localStorage.getItem("pst-design") || ""; } catch {}
+      try { localStorage.setItem(CLAIM_KEY, JSON.stringify({ h, d, t: new Date().toISOString().slice(0, 10) })); } catch {}
+    }
+    location.replace(`${location.pathname}?find=${encodeURIComponent(h)}&new=1`);
+  };
+  el.querySelector("#claimForm").onsubmit = go;
+  el.querySelector("#claimGo").onclick = go;
+  setTimeout(() => el.querySelector("#claimInput").focus(), 50);
+}
+function confetti() {
+  const cols = [C.coral, C.sun, C.teal, C.grape, C.sky, C.orange];
+  for (let i = 0; i < 90; i++) {
+    const p = document.createElement("i");
+    p.className = "confetti";
+    p.style.left = `${Math.random() * 100}vw`;
+    p.style.background = cols[i % cols.length];
+    p.style.animationDelay = `${Math.random() * 0.6}s`;
+    p.style.animationDuration = `${1.8 + Math.random() * 1.4}s`;
+    p.style.transform = `rotate(${Math.random() * 360}deg)`;
+    document.body.append(p);
+    setTimeout(() => p.remove(), 3800);
+  }
+}
 
 // ---------- picking ----------
 const ray = new THREE.Raycaster(), ptr = new THREE.Vector2();
@@ -650,13 +720,22 @@ renderer.setAnimationLoop(() => {
 // ---------- boot ----------
 (async () => {
   const qs = new URLSearchParams(location.search);
+  // name tags are drawn on canvases, so wait (briefly) for the Fredoka font first
+  try { await Promise.race([document.fonts.load("600 44px Fredoka"), new Promise((r) => setTimeout(r, 2500))]); } catch {}
   let houses = [];
   try {
     const res = await fetch(`data/houses.json?v=${Date.now()}`, { cache: "no-store" });
     houses = (await res.json()).houses || [];
   } catch (e) { console.warn("houses.json not loaded", e); }
+  const film = qs.get("film") === "1"; // video capture mode (local only)
+  if (qs.get("you")) houses.unshift({ h: qs.get("you"), d: qs.get("code") || "", t: "today" });
   const demo = +qs.get("demo") || 0; // local testing only
   for (let i = 0; i < demo; i++) houses.push({ h: `demo_family_${i + 1}`, t: "demo" });
+  const claim = readClaim();
+  if (claim && claim.h) {
+    if (houses.some((x) => norm(x.h) === claim.h)) { try { localStorage.removeItem(CLAIM_KEY); } catch {} }
+    else if (!film) houses.push({ h: claim.h, d: claim.d, t: claim.t, pending: true });
+  }
   const seen = new Set();
   houses = houses.filter((h) => h && h.h && !seen.has(norm(h.h)) && seen.add(norm(h.h)));
   state.houses = houses;
@@ -664,6 +743,22 @@ renderer.setAnimationLoop(() => {
   buildTown(houses);
   updateGoal();
   const l = $("loading"); l.style.opacity = 0; setTimeout(() => l.remove(), 500);
+  if (film) {
+    document.body.classList.add("film");
+    renderer.setAnimationLoop(null);
+    if (qs.get("you")) showLabel(0, true);
+    window.__state = state;
+    window.__film = (t, pos, tgt) => {
+      camera.position.set(...pos); controls.target.set(...tgt); camera.lookAt(controls.target);
+      for (const f of anim) f(t, 1 / 30);
+      state.labels.forEach((s) => { s.visible = s.userData.big || camera.position.distanceTo(s.position) < 85; });
+      renderer.render(scene, camera);
+      return true;
+    };
+    window.__filmReady = true;
+    return;
+  }
   if (qs.get("find")) setTimeout(() => find(qs.get("find")), 600);
-  else if (small) $("card").classList.add("collapsed"), ($("collapse").textContent = "+");
+  else if (qs.get("claim")) openClaim();
+  if (small) { $("card").classList.add("collapsed"); $("collapse").textContent = "+"; }
 })();
