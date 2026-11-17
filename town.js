@@ -717,7 +717,8 @@ function showLabel(i, big) {
 
 // ---------- camera fly ----------
 let fly = null;
-function flyTo(target, dist = 38) {
+function flyTo(target, dist = 38, stand) {
+  if (pipMode) return pipGo(target, stand); // Pip flies there and the camera follows
   const from = { p: camera.position.clone(), t: controls.target.clone() };
   target = target.clone().setY(2);
   // look from the outside of town, fairly steep, so Pip's Lab never blocks the view
@@ -728,6 +729,7 @@ function flyTo(target, dist = 38) {
   if (small) target.add(new THREE.Vector3(out.x * dist * 0.32, 0, out.z * dist * 0.32));
   const to = { t: target.clone(), p: target.clone().add(new THREE.Vector3(out.x * dist * 0.6, dist * 0.95, out.z * dist * 0.6)) };
   fly = { from, to, t0: performance.now(), dur: 1300 };
+  return 1.3;
 }
 
 // ---------- marker for a found house ----------
@@ -925,7 +927,7 @@ function openHint() {
     <p class="fact">It's near the <b>${TODAY.near}</b>! Zoom in and look for a sparkle, then tap it.</p>
     <button class="big" id="flyHint">🚁 Fly me close</button>`;
   openModal(el);
-  el.querySelector("#flyHint").onclick = () => { closeModal(); marker.visible = false; flyTo(spotPos(TODAY.spot), 62); };
+  el.querySelector("#flyHint").onclick = () => { closeModal(); marker.visible = false; flyTo(spotPos(TODAY.spot), 62, { r: 17 }); };
 }
 function updateDot() { $("hintBtn").querySelector(".dot").classList.toggle("hidden", foundToday()); }
 
@@ -953,12 +955,12 @@ function showHouse(i, { fly = true, playIt = true } = {}) {
   const h = state.houses[i], d = designFor(h), lot = state.lots[i];
   showLabel(i, true);
   marker.position.set(lot.x, 10, lot.z); marker.visible = true;
-  if (fly) flyTo(new THREE.Vector3(lot.x, 0, lot.z));
+  const wait = fly ? flyTo(new THREE.Vector3(lot.x, 0, lot.z), 38, { r: 5, dir: new THREE.Vector3(Math.sin(lot.face), 0, Math.cos(lot.face)) }) : 0;
   const g = GADGETS[d.g], p = PETS[d.p];
   const welcome = h.pending && new URLSearchParams(location.search).get("new") === "1";
   const mine = norm(h.h) === readMe();
-  if (welcome) { confetti(); sfx.fanfare(); growHouse(i, fly ? 1.2 : 0.2); }
-  else if (playIt) later(fly ? 1.3 : 0, () => playHouse(i));
+  if (welcome) { confetti(); sfx.fanfare(); growHouse(i, wait + 0.2); }
+  else if (playIt) later(wait, () => playHouse(i));
   const ex = TODAY.experiment;
   info(`${welcome ? "<h3>🎉 Welcome to Pip's Science Town!</h3>" : ""}<h3>🏡 @${h.h}</h3>
     <p><b>House #${(i + 1).toLocaleString()}</b> on <b>${streetOf(lot)}</b></p>
@@ -979,10 +981,10 @@ function showHouse(i, { fly = true, playIt = true } = {}) {
 function showSpot(s, { fly = true, playIt = false } = {}) {
   const n = state.houses.length, open = n >= s.at;
   const grp = state.spotGroups[SPOTS.indexOf(s)];
-  if (fly) flyTo(grp.position.clone(), 62);
+  const wait = fly ? flyTo(grp.position.clone(), 62, { r: 15 }) : 0;
   marker.visible = false;
   const play = () => spotPlay.get(s.id)?.();
-  if (playIt) later(fly ? 1.3 : 0, play);
+  if (playIt) later(wait, play);
   const verb = { pip: "🤖 Make Pip jump", volcano: "🌋 Erupt!", aquarium: "🐠 Splash!", weather: "🌦️ Make it rain", planetarium: "🌌 Star show", dino: "🦖 Roar!", rocket: "🚀 Launch!" }[s.id];
   const f = TODAY.fact;
   info(`<h3>${s.e} ${s.name}</h3>
@@ -1131,6 +1133,151 @@ function confetti() {
   }
 }
 
+// ---------- Pip mode: a little jetpack Pip you steer with one finger ----------
+let pipMode = true;
+try { pipMode = localStorage.getItem("pst-view") !== "map"; } catch {}
+const bot = new THREE.Group();
+const botBody = new THREE.Group(); bot.add(botBody);
+botBody.add(mesh("box", C.teal, [0, 0.5, 0], [1.3, 1.4, 1.0]));
+botBody.add(mesh("box", C.white, [0, 1.9, 0], [1.8, 1.35, 1.35]));
+botBody.add(mesh("ball", C.ink, [-0.38, 2.6, 0.68], [0.34, 0.34, 0.16]));
+botBody.add(mesh("ball", C.ink, [0.38, 2.6, 0.68], [0.34, 0.34, 0.16]));
+botBody.add(mesh("box", C.coral, [0, 2.2, 0.69], [0.5, 0.1, 0.05]));
+botBody.add(mesh("cyl", C.ink, [0, 3.2, 0], [0.08, 0.55, 0.08]));
+const botLight = mesh("ball", C.coral, [0, 3.85, 0], [0.38, 0.38, 0.38], [0, 0, 0], { emissive: C.coral, emissiveIntensity: 0.6 });
+botBody.add(botLight);
+botBody.add(mesh("cyl", C.orange, [-0.35, 0.3, -0.65], [0.38, 1.1, 0.38]));
+botBody.add(mesh("cyl", C.orange, [0.35, 0.3, -0.65], [0.38, 1.1, 0.38]));
+const botArmL = mesh("box", C.teal, [-0.85, 0.5, 0], [0.28, 0.9, 0.28], [0, 0, 0.4]);
+const botArmR = mesh("box", C.teal, [0.85, 0.5, 0], [0.28, 0.9, 0.28], [0, 0, -0.4]);
+botBody.add(botArmL, botArmR);
+const botShadow = new THREE.Mesh(new THREE.CircleGeometry(1.1, 24), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.22, depthWrite: false }));
+botShadow.rotation.x = -Math.PI / 2;
+bot.scale.setScalar(1.25);
+bot.visible = false;
+scene.add(bot, botShadow);
+
+const pip = { pos: new THREE.Vector3(0, 0.45, PZ / 2), yaw: 0.52, pitch: 0.82, dist: small ? 44 : 40, look: new THREE.Vector3(), move: null, keys: new Set(), placed: false };
+const _cv = new THREE.Vector3(), _lv = new THREE.Vector3();
+
+/** Fly Pip to a point. stand: {r, dir} stops r units short (in front of a house door, or before a building). Returns the travel time. */
+function pipGo(target, stand) {
+  const to = target.clone().setY(0.45);
+  if (stand?.r) {
+    const dir = stand.dir ? stand.dir.clone() : pip.pos.clone().sub(to).setY(0);
+    if (dir.lengthSq() < 0.01) dir.set(0, 0, 1);
+    to.add(dir.normalize().multiplyScalar(stand.r));
+    if (stand.dir) { pip.yawGoal = Math.atan2(dir.x, dir.z); pip.distGoal = small ? 34 : 30; pip.pitchGoal = 1.0; } // swing round to the front door, a bit closer and steeper so nothing blocks the view
+  }
+  const d = pip.pos.distanceTo(to);
+  if (d < 0.5) return 0;
+  const dur = Math.min(3.2, Math.max(0.5, 0.35 + d / 26));
+  pip.move = { from: pip.pos.clone(), to, t0: NOW, dur, h: d < 7 ? 0.8 : Math.min(16, 5 + d * 0.12) };
+  if (d > 7) sfx.whoosh(); else sfx.pop();
+  return dur;
+}
+function pipFace(dx, dz, dt) {
+  if (Math.abs(dx) + Math.abs(dz) < 1e-4) return;
+  const want = Math.atan2(dx, dz);
+  let a = want - bot.rotation.y; a = Math.atan2(Math.sin(a), Math.cos(a));
+  bot.rotation.y += a * Math.min(1, dt * 10);
+}
+anim.push((t, dt) => {
+  if (!pipMode) return;
+  const before = pip.pos.clone();
+  let flying = false;
+  if (pip.move) {
+    const m = pip.move, k = Math.min(1, (NOW - m.t0) / m.dur), e = ease(k);
+    pip.pos.lerpVectors(m.from, m.to, e);
+    pip.pos.y = 0.45 + Math.sin(k * Math.PI) * m.h;
+    flying = m.h > 1;
+    if (k >= 1) { pip.move = null; burst(pip.pos.clone().setY(0.6), { n: 10, colors: ["#e8dcc4", "#ffffff"], speed: 3, up: 1.5, grav: 4, size: 0.4, life: 0.6 }); }
+  }
+  // keyboard: arrows / WASD walk relative to the camera
+  if (pip.keys.size && !pip.move) {
+    const f = (pip.keys.has("ArrowUp") || pip.keys.has("w") ? 1 : 0) - (pip.keys.has("ArrowDown") || pip.keys.has("s") ? 1 : 0);
+    const r = (pip.keys.has("ArrowRight") || pip.keys.has("d") ? 1 : 0) - (pip.keys.has("ArrowLeft") || pip.keys.has("a") ? 1 : 0);
+    const sp = 16 * dt;
+    pip.pos.x += (-Math.sin(pip.yaw) * f + Math.cos(pip.yaw) * r) * sp;
+    pip.pos.z += (-Math.cos(pip.yaw) * f - Math.sin(pip.yaw) * r) * sp;
+  }
+  const lim = state.extent + 30;
+  pip.pos.x = Math.max(-lim, Math.min(lim, pip.pos.x)); pip.pos.z = Math.max(-lim, Math.min(lim, pip.pos.z));
+  const dx = pip.pos.x - before.x, dz = pip.pos.z - before.z;
+  pipFace(dx, dz, dt);
+  const moving = Math.hypot(dx, dz) > 0.002;
+  bot.position.copy(pip.pos);
+  botBody.position.y = Math.sin(t * 3) * 0.12 + (moving && !flying ? Math.abs(Math.sin(t * 14)) * 0.25 : 0);
+  botBody.rotation.x = flying ? 0.25 : 0;
+  botArmL.rotation.z = flying ? 1.2 : 0.4 + (moving ? Math.sin(t * 14) * 0.3 : 0); botArmR.rotation.z = -botArmL.rotation.z;
+  botLight.material.emissiveIntensity = 0.5 + 0.5 * Math.sin(t * 5) + nf;
+  if (flying) burst(_lv.set(0, 0.2, -0.85).applyAxisAngle(_cv.set(0, 1, 0), bot.rotation.y).multiplyScalar(1.25).add(pip.pos), { n: 2, colors: [C.sun, C.orange], speed: 0.6, up: -3, grav: 2, size: 0.35, life: 0.4, spread: 0.3, bounce: false });
+  botShadow.position.set(pip.pos.x, 0.47, pip.pos.z);
+  botShadow.scale.setScalar(1.25 / (1 + (pip.pos.y - 0.45) * 0.08));
+  // Pip finds today's discovery by flying close to it
+  if (treasure && pip.pos.distanceTo(treasure.position) < 4.2) collectTreasure();
+  // follow camera (swings round smoothly when a house wants to be seen from the front)
+  if (pip.yawGoal !== null && pip.yawGoal !== undefined) {
+    let a = pip.yawGoal - pip.yaw; a = Math.atan2(Math.sin(a), Math.cos(a));
+    pip.yaw += a * Math.min(1, dt * 2.5);
+    if (Math.abs(a) < 0.01) pip.yawGoal = null;
+  }
+  if (pip.distGoal) { pip.dist += (pip.distGoal - pip.dist) * Math.min(1, dt * 2); if (Math.abs(pip.distGoal - pip.dist) < 0.2) pip.distGoal = 0; }
+  if (pip.pitchGoal) { pip.pitch += (pip.pitchGoal - pip.pitch) * Math.min(1, dt * 2); if (Math.abs(pip.pitchGoal - pip.pitch) < 0.01) pip.pitchGoal = 0; }
+  _cv.set(Math.sin(pip.yaw) * Math.cos(pip.pitch), Math.sin(pip.pitch), Math.cos(pip.yaw) * Math.cos(pip.pitch)).multiplyScalar(pip.dist);
+  _lv.copy(pip.pos).setY(Math.min(pip.pos.y, 4) + 1.5);
+  // on phones the info card covers the bottom, so look a bit past Pip to lift him up the screen
+  if (small && document.body.classList.contains("info-open")) _lv.add(new THREE.Vector3(Math.sin(pip.yaw), 0, Math.cos(pip.yaw)).multiplyScalar(pip.dist * 0.2));
+  const kk = 1 - Math.exp(-dt * 6);
+  pip.look.lerp(_lv, kk);
+  camera.position.lerp(_cv.add(pip.look), kk);
+  camera.lookAt(pip.look);
+  controls.target.copy(pip.look);
+});
+function placePip() {
+  const me = state.byHandle.get(readMe());
+  if (me !== undefined) { const l = state.lots[me]; pip.pos.set(l.x + Math.sin(l.face) * 5, 0.45, l.z + Math.cos(l.face) * 5); }
+  else pip.pos.set(0, 0.45, PZ / 2);
+  pip.look.copy(controls.target); // start from the overview and swoop down to Pip
+  pip.placed = true;
+}
+function setView(v) {
+  pipMode = v;
+  try { localStorage.setItem("pst-view", v ? "pip" : "map"); } catch {}
+  bot.visible = botShadow.visible = v;
+  controls.enabled = !v;
+  fly = null;
+  if (v) { pip.move = null; pip.look.copy(controls.target); }
+  else { controls.target.copy(pip.pos).setY(0); }
+  $("viewBtn").textContent = v ? "🗺️" : "🤖";
+  $("viewBtn").setAttribute("aria-label", v ? "Switch to map view" : "Switch to Pip view");
+}
+
+// one finger: tap = go there, drag = turn the camera; two fingers: pinch = zoom; wheel = zoom
+const fingers = new Map();
+let pinch0 = 0, dist0 = 0;
+renderer.domElement.addEventListener("pointerdown", (e) => { if (!pipMode) return; fingers.set(e.pointerId, [e.clientX, e.clientY]); renderer.domElement.setPointerCapture?.(e.pointerId); if (fingers.size === 2) { const [a, b] = [...fingers.values()]; pinch0 = Math.hypot(a[0] - b[0], a[1] - b[1]); dist0 = pip.dist; } });
+renderer.domElement.addEventListener("pointermove", (e) => {
+  if (!pipMode || !fingers.has(e.pointerId)) return;
+  const prev = fingers.get(e.pointerId);
+  fingers.set(e.pointerId, [e.clientX, e.clientY]);
+  if (fingers.size === 1) {
+    pip.yawGoal = null; pip.pitchGoal = 0;
+    pip.yaw -= (e.clientX - prev[0]) * 0.008;
+    pip.pitch = Math.max(0.45, Math.min(1.35, pip.pitch + (e.clientY - prev[1]) * 0.005));
+  } else if (fingers.size === 2 && pinch0) {
+    const [a, b] = [...fingers.values()];
+    pip.distGoal = 0;
+    pip.dist = Math.max(14, Math.min(170, dist0 * pinch0 / Math.max(10, Math.hypot(a[0] - b[0], a[1] - b[1]))));
+  }
+});
+const lift = (e) => { fingers.delete(e.pointerId); if (fingers.size < 2) pinch0 = 0; };
+renderer.domElement.addEventListener("pointercancel", lift);
+renderer.domElement.addEventListener("wheel", (e) => { if (!pipMode) return; e.preventDefault(); pip.distGoal = 0; pip.dist = Math.max(14, Math.min(170, pip.dist * (1 + e.deltaY * 0.0012))); }, { passive: false });
+addEventListener("keydown", (e) => { if (!pipMode || e.target.closest?.("input, textarea")) return; const k = e.key.length === 1 ? e.key.toLowerCase() : e.key; if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "w", "a", "s", "d"].includes(k)) { pip.keys.add(k); pip.move = null; e.preventDefault(); } });
+addEventListener("keyup", (e) => { const k = e.key.length === 1 ? e.key.toLowerCase() : e.key; pip.keys.delete(k); });
+addEventListener("blur", () => pip.keys.clear());
+
 // ---------- picking ----------
 const ray = new THREE.Raycaster(), ptr = new THREE.Vector2();
 let down = null;
@@ -1138,20 +1285,30 @@ addEventListener("pointerdown", () => sfx.unlock(), { once: true });
 renderer.domElement.addEventListener("pointerdown", (e) => (down = [e.clientX, e.clientY]));
 const isNear = (p, d = 95) => camera.position.distanceTo(p) < d;
 renderer.domElement.addEventListener("pointerup", (e) => {
+  lift(e);
   if (!down || Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 8) return;
   ptr.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
   ray.setFromCamera(ptr, camera);
   const targets = [...state.meshes.filter((m) => m.userData.kind === "wall" || m.userData.kind === "roof" || m.userData.kind === "win"), ...state.spotGroups];
   if (treasure) targets.unshift(treasure);
   const hit = ray.intersectObjects(targets, true)[0];
-  if (!hit) return;
-  if (hit.object.userData.treasure) return collectTreasure();
-  if (hit.object.userData.spot) {
-    const s = hit.object.userData.spot, near = isNear(state.spotGroups[SPOTS.indexOf(s)].position, 110);
-    return showSpot(s, { fly: !near, playIt: true });
+  // Pip view: "near" means near Pip; map view: near the camera
+  const close = (p, dMap, dPip) => (pipMode ? pip.pos.distanceTo(_lv.set(p.x, 0.45, p.z)) < dPip : isNear(p, dMap));
+  if (hit?.object.userData.treasure) {
+    if (pipMode) { const t = pipGo(treasure.position, { r: 0.1 }); return t ? null : collectTreasure(); }
+    return collectTreasure();
   }
-  const tag = hit.object.userData.tags?.[hit.instanceId];
-  if (tag !== undefined) { const l = state.lots[tag]; showHouse(tag, { fly: !isNear(new THREE.Vector3(l.x, 0, l.z), 75) }); }
+  if (hit?.object.userData.spot) {
+    const s = hit.object.userData.spot;
+    return showSpot(s, { fly: !close(state.spotGroups[SPOTS.indexOf(s)].position, 110, 20), playIt: true });
+  }
+  const tag = hit?.object.userData.tags?.[hit.instanceId];
+  if (tag !== undefined) { const l = state.lots[tag]; return showHouse(tag, { fly: pipMode || !isNear(new THREE.Vector3(l.x, 0, l.z), 75) }); }
+  if (pipMode) {
+    // tap on the ground: Pip flies there
+    const g = new THREE.Vector3();
+    if (ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), -0.45), g)) pipGo(g);
+  }
 });
 
 // ---------- loop ----------
@@ -1161,14 +1318,14 @@ const ease = (k) => (k < 0.5 ? 2 * k * k : 1 - (-2 * k + 2) ** 2 / 2);
 renderer.setAnimationLoop(() => {
   const dt = Math.min(clock.getDelta(), 0.1), t = clock.elapsedTime;
   NOW = t;
-  if (fly) {
+  if (fly && !pipMode) {
     const k = Math.min(1, (performance.now() - fly.t0) / fly.dur), e = ease(k);
     camera.position.lerpVectors(fly.from.p, fly.to.p, e);
     controls.target.lerpVectors(fly.from.t, fly.to.t, e);
     if (k >= 1) fly = null;
   }
   for (const f of anim) f(t, dt);
-  controls.update();
+  if (!pipMode) controls.update();
   const sk = NOW - shakeT0 < shakeDur ? shakeAmp * (1 - (NOW - shakeT0) / shakeDur) : 0;
   const off = new THREE.Vector3((Math.random() - 0.5) * sk, (Math.random() - 0.5) * sk, (Math.random() - 0.5) * sk);
   camera.position.add(off);
@@ -1178,6 +1335,7 @@ renderer.setAnimationLoop(() => {
 
 // ---------- toolbar ----------
 $("hintBtn").onclick = () => { sfx.pop(); openHint(); };
+$("viewBtn").onclick = () => { sfx.pop(); setView(!pipMode); toast(pipMode ? "🤖 Tap anywhere and Pip flies there! Drag to look around." : "🗺️ Map view: drag to move, pinch to zoom.", 3500); };
 $("bookBtn").onclick = () => { sfx.pop(); openBook(); };
 $("homeBtn").onclick = () => { const i = state.byHandle.get(readMe()); if (i !== undefined) showHouse(i); };
 const setNightIcon = () => ($("nightBtn").textContent = nightOn ? "☀️" : "🌙");
@@ -1197,6 +1355,7 @@ setNightIcon(); setSoundIcon();
     houses = (await res.json()).houses || [];
   } catch (e) { console.warn("houses.json not loaded", e); }
   const film = qs.get("film") === "1"; // video capture mode (local only)
+  if (film) pipMode = false;
   if (qs.get("you")) houses.unshift({ h: qs.get("you"), d: qs.get("code") || "", t: "today" });
   const demo = +qs.get("demo") || 0; // local testing only
   for (let i = 0; i < demo; i++) houses.push({ h: `demo_family_${i + 1}`, t: "demo" });
@@ -1235,12 +1394,13 @@ setNightIcon(); setSoundIcon();
     return;
   }
   placeTreasure(); markMyHouse(); updateDot();
+  placePip(); setView(pipMode);
   // families who moved in today pop up out of the ground
   houses.forEach((h, i) => { if (h.t === TODAY.day && !h.pending) growHouse(i, 0.8 + Math.min(i, 30) * 0.12); });
   if (!qs.get("find") && !qs.get("claim")) {
     let seenTip = false;
     try { seenTip = localStorage.getItem("pst-tip") === "1"; localStorage.setItem("pst-tip", "1"); } catch {}
-    if (!seenTip) setTimeout(() => toast("👆 Tap the buildings and houses. They do things!", 4500), 1500);
+    if (!seenTip) setTimeout(() => toast(pipMode ? "🤖 Tap anywhere and Pip flies there! Tap houses and buildings to play." : "👆 Tap the buildings and houses. They do things!", 5000), 1500);
     if (!foundToday()) setTimeout(() => toast("✨ Pip hid something in town today… Tap 🔎 for a hint!", 5000), seenTip ? 1800 : 6500);
   }
   if (qs.get("find")) setTimeout(() => find(qs.get("find")), 600);
