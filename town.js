@@ -486,6 +486,8 @@ function flyTo(target, dist = 38) {
   const out = new THREE.Vector3(target.x, 0, target.z);
   if (out.length() < 1) out.set(0.5, 0, 0.9);
   out.normalize();
+  // on phones the info card covers the bottom half, so aim a little past the house (towards the camera) to lift it up the screen
+  if (small) target.add(new THREE.Vector3(out.x * dist * 0.32, 0, out.z * dist * 0.32));
   const to = { t: target.clone(), p: target.clone().add(new THREE.Vector3(out.x * dist * 0.6, dist * 0.95, out.z * dist * 0.6)) };
   fly = { from, to, t0: performance.now(), dur: 1300 };
 }
