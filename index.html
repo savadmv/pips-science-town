@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<title>Pip's Science Town · Wonder Lab Kids</title>
+<meta name="description" content="Every Wonder Lab family gets a free science house in Pip's 3D town. Comment LAB on @wonderlabkids.science to move in!" />
+<meta property="og:title" content="Pip's Science Town 🏡🔬" />
+<meta property="og:description" content="Every family gets a free science house. Comment LAB on @wonderlabkids.science to move in!" />
+<link rel="icon" href="pip.png" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="style.css" />
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<div id="scene"></div>
+
+<div id="loading"><img src="pip.png" alt="" /><div>Building the town…</div></div>
+
+<section id="card" class="panel">
+  <header>
+    <img src="pip.png" alt="Pip" class="logo" />
+    <div>
+      <h1>Pip's Science Town</h1>
+      <p class="sub">by <a href="https://www.instagram.com/wonderlabkids.science/" target="_blank" rel="noopener">@wonderlabkids.science</a></p>
+    </div>
+    <button id="collapse" class="icon" aria-label="Hide panel">–</button>
+  </header>
+  <div class="body">
+    <p class="count"><b id="families">0</b> <span id="familiesWord">families</span> live here</p>
+    <div class="goal">
+      <div class="goalText" id="goalText">…</div>
+      <div class="bar"><i id="goalBar"></i></div>
+    </div>
+    <button class="big" id="getHouse">🏡 Get my free house</button>
+    <div class="row">
+      <button class="soft" id="designBtn">🎨 Design my house</button>
+      <button class="soft" id="buildingsBtn">🔬 Science spots</button>
+    </div>
+    <form id="findForm" class="find" autocomplete="off">
+      <span>@</span><input id="findInput" placeholder="Find your house" aria-label="Instagram username" />
+      <button aria-label="Search">🔍</button>
+    </form>
+    <p class="tiny"><a href="#" id="privacyLink">🔒 Privacy &amp; moving out</a></p>
+  </div>
+</section>
+
+<button id="ctaMobile" class="big">🏡 Get my free house</button>
+<div id="toast" class="panel hidden"></div>
+<div id="info" class="panel hidden"></div>
+
+<div id="modal" class="hidden">
+  <div class="sheet panel">
+    <button class="icon close" data-close aria-label="Close">✕</button>
+    <div id="modalBody"></div>
+  </div>
+</div>
+
+<template id="tplGet">
+  <h2>🏡 Get your free house</h2>
+  <ol class="steps">
+    <li><b>Follow</b> <a href="https://www.instagram.com/wonderlabkids.science/" target="_blank" rel="noopener">@wonderlabkids.science</a></li>
+    <li><b>Comment LAB</b> on any of our posts (or send us a DM: <b>LAB</b>)</li>
+    <li>Your family's house appears in town within a day, with your Instagram @ on the door 🎉</li>
+  </ol>
+  <p>Want to choose the colours, pet and science gadget? <a href="#" data-open="design">Design your house first</a>, then send us your house code.</p>
+  <p class="tiny">Every new family helps open the next science building for everyone!</p>
+  <a class="big" href="https://www.instagram.com/wonderlabkids.science/" target="_blank" rel="noopener">Open Instagram</a>
+</template>
+
+<template id="tplPrivacy">
+  <h2>🔒 Privacy &amp; moving out</h2>
+  <ul class="steps">
+    <li>We only show the <b>public Instagram @</b> of the grown-up who comments LAB. Nothing else.</li>
+    <li>We never show children's names, photos, ages or schools. Please don't send them.</li>
+    <li>This site has no sign-up, no tracking and no ads.</li>
+    <li>Want your house removed? DM us <b>MOVE OUT</b> and it's gone within a day.</li>
+  </ul>
+</template>
+
+<script type="module" src="town.js"></script>
+</body>
+</html>

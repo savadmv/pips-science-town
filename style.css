@@ -1,0 +1,93 @@
+:root {
+  --ink: #2b2d42;
+  --cream: #fff6e5;
+  --sun: #ffc93c;
+  --coral: #ff6b6b;
+  --teal: #2ec4b6;
+  --sky: #4cc9f0;
+  --grape: #7b61ff;
+  --orange: #ff9f1c;
+  --panel: rgba(255, 246, 229, 0.94);
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; overflow: hidden; background: #bde7ff; color: var(--ink); font-family: "Fredoka", system-ui, sans-serif; -webkit-tap-highlight-color: transparent; }
+#scene { position: fixed; inset: 0; }
+#scene canvas { display: block; touch-action: none; }
+a { color: var(--grape); font-weight: 600; }
+button { font: inherit; cursor: pointer; color: inherit; }
+
+.panel { background: var(--panel); border: 4px solid var(--ink); border-radius: 22px; box-shadow: 0 6px 0 rgba(43, 45, 66, 0.25); backdrop-filter: blur(6px); }
+.hidden { display: none !important; }
+
+#loading { position: fixed; inset: 0; display: grid; place-content: center; justify-items: center; gap: 12px; font-size: 22px; font-weight: 600; background: #bde7ff; z-index: 50; transition: opacity 0.5s; }
+#loading img { width: 96px; animation: bob 1.2s ease-in-out infinite; }
+@keyframes bob { 50% { transform: translateY(-10px); } }
+
+#card { position: fixed; top: 14px; left: 14px; width: min(340px, calc(100vw - 28px)); padding: 14px 16px; z-index: 10; }
+#card header { display: flex; align-items: center; gap: 10px; }
+#card .logo { width: 52px; height: 52px; border-radius: 50%; border: 3px solid var(--ink); background: var(--teal); }
+#card h1 { margin: 0; font-size: 22px; line-height: 1.05; }
+#card .sub { margin: 2px 0 0; font-size: 13px; }
+#card .icon { margin-left: auto; }
+#card.collapsed .body { display: none; }
+.icon { width: 34px; height: 34px; border-radius: 50%; border: 3px solid var(--ink); background: #fff; font-weight: 700; line-height: 1; flex: none; }
+.count { margin: 12px 0 6px; font-size: 17px; }
+.count b { font-size: 26px; color: var(--coral); }
+.goalText { font-size: 14px; margin-bottom: 5px; }
+.bar { height: 14px; border: 3px solid var(--ink); border-radius: 99px; background: #fff; overflow: hidden; }
+.bar i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--teal), var(--sky)); transition: width 1s; }
+.big { display: block; width: 100%; margin: 12px 0 8px; padding: 11px; text-align: center; font-size: 19px; font-weight: 700; text-decoration: none; color: #fff; background: var(--coral); border: 4px solid var(--ink); border-radius: 16px; box-shadow: 0 4px 0 var(--ink); }
+.big:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--ink); }
+.row { display: flex; gap: 8px; }
+.soft { flex: 1; padding: 8px 6px; font-size: 14px; font-weight: 600; background: #fff; border: 3px solid var(--ink); border-radius: 14px; }
+.find { display: flex; align-items: center; gap: 4px; margin-top: 10px; padding: 4px 4px 4px 12px; background: #fff; border: 3px solid var(--ink); border-radius: 14px; }
+.find span { font-weight: 700; }
+.find input { flex: 1; min-width: 0; border: 0; outline: 0; font: inherit; font-size: 16px; background: transparent; }
+.find button { border: 0; background: var(--sun); border-radius: 10px; padding: 6px 10px; }
+.tiny { font-size: 12.5px; margin: 8px 0 0; opacity: 0.85; }
+
+#toast { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); padding: 10px 16px; font-weight: 600; z-index: 20; max-width: calc(100vw - 28px); text-align: center; }
+#info { position: fixed; right: 14px; bottom: 14px; width: min(320px, calc(100vw - 28px)); padding: 14px 16px; z-index: 12; }
+#info h3 { margin: 0 0 4px; font-size: 20px; }
+#info p { margin: 6px 0; font-size: 15px; }
+#info .icon { position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; }
+#info .tag { display: inline-block; padding: 2px 10px; border: 2px solid var(--ink); border-radius: 99px; font-size: 13px; font-weight: 600; background: var(--sun); }
+#info .tag.open { background: #c9f2c4; }
+
+#modal { position: fixed; inset: 0; background: rgba(43, 45, 66, 0.45); display: grid; place-items: center; padding: 14px; z-index: 30; }
+#modal .sheet { position: relative; width: min(460px, 100%); max-height: calc(100vh - 28px); overflow: auto; padding: 18px 20px; }
+#modal .close { position: absolute; top: 10px; right: 10px; }
+#modal h2 { margin: 0 34px 8px 0; font-size: 24px; }
+.steps { padding-left: 22px; line-height: 1.45; }
+.steps li { margin: 6px 0; }
+
+.designer canvas { width: 100%; height: 220px; display: block; border: 3px solid var(--ink); border-radius: 16px; background: #bde7ff; }
+.opt { margin: 10px 0 0; }
+.opt .lbl { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chips button { min-width: 38px; height: 38px; padding: 0 10px; border: 3px solid var(--ink); border-radius: 12px; background: #fff; font-size: 15px; }
+.chips button.on { outline: 4px solid var(--grape); outline-offset: 1px; }
+.chips .swatch { width: 38px; padding: 0; }
+.code { margin-top: 12px; padding: 10px; text-align: center; border: 3px dashed var(--grape); border-radius: 14px; background: #fff; }
+.code b { font-size: 24px; letter-spacing: 1px; }
+
+.spots { list-style: none; padding: 0; margin: 0; }
+.spots li { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 2px dashed rgba(43, 45, 66, 0.15); }
+.spots .em { font-size: 28px; width: 36px; text-align: center; }
+.spots .t { flex: 1; }
+.spots .t b { display: block; }
+.spots .t span { font-size: 13px; }
+.spots button { padding: 6px 10px; border: 3px solid var(--ink); border-radius: 12px; background: var(--sun); font-weight: 600; }
+
+#ctaMobile { display: none; }
+@media (max-width: 600px) {
+  #ctaMobile { display: block; white-space: nowrap; position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); width: auto; margin: 0; padding: 10px 22px; z-index: 11; }
+  #card:not(.collapsed) ~ #ctaMobile, body.info-open #ctaMobile { display: none; }
+  #toast { bottom: 78px; }
+  #card { top: 10px; left: 10px; padding: 10px 12px; }
+  #card h1 { font-size: 19px; }
+  #card .logo { width: 42px; height: 42px; }
+  .count { margin-top: 8px; }
+  .big { font-size: 17px; padding: 9px; margin: 9px 0 6px; }
+  #info { right: 10px; left: 10px; width: auto; bottom: 10px; }
+}
