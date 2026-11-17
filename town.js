@@ -658,16 +658,19 @@ function openClaim() {
     e?.preventDefault();
     const h = norm(el.querySelector("#claimInput").value);
     if (!/^[a-z0-9._]{1,30}$/.test(h)) { toast("That doesn't look like an Instagram username 🤔"); return; }
-    if (!state.byHandle.has(h)) {
-      let d = "";
-      try { d = localStorage.getItem("pst-design") || ""; } catch {}
-      try { localStorage.setItem(CLAIM_KEY, JSON.stringify({ h, d, t: new Date().toISOString().slice(0, 10) })); } catch {}
-    }
-    location.replace(`${location.pathname}?find=${encodeURIComponent(h)}&new=1`);
+    claimAs(h);
   };
   el.querySelector("#claimForm").onsubmit = go;
   el.querySelector("#claimGo").onclick = go;
   setTimeout(() => el.querySelector("#claimInput").focus(), 50);
+}
+function claimAs(h) {
+  if (!state.byHandle.has(h)) {
+    let d = "";
+    try { d = localStorage.getItem("pst-design") || ""; } catch {}
+    try { localStorage.setItem(CLAIM_KEY, JSON.stringify({ h, d, t: new Date().toISOString().slice(0, 10) })); } catch {}
+  }
+  location.replace(`${location.pathname}?find=${encodeURIComponent(h)}&new=1`);
 }
 function confetti() {
   const cols = [C.coral, C.sun, C.teal, C.grape, C.sky, C.orange];
@@ -759,6 +762,11 @@ renderer.setAnimationLoop(() => {
     return;
   }
   if (qs.get("find")) setTimeout(() => find(qs.get("find")), 600);
-  else if (qs.get("claim")) openClaim();
+  else if (qs.get("claim")) {
+    // ManyChat buttons can pass the Instagram username: ?claim=their.name moves them in with no typing
+    const h = norm(qs.get("claim"));
+    if (h !== "1" && /^[a-z0-9._]{1,30}$/.test(h) && /[a-z]/.test(h)) claimAs(h);
+    else openClaim();
+  }
   if (small) { $("card").classList.add("collapsed"); $("collapse").textContent = "+"; }
 })();
