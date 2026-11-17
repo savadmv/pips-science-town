@@ -351,6 +351,7 @@ const sfx = (() => {
     get on() { return on; },
     toggle() { on = !on; try { localStorage.setItem("pst-sound", on ? "on" : "off"); } catch {} if (on) this.pop(); return on; },
     unlock() { if (on) try { ctx(); } catch {} },
+    ac() { try { return ctx(); } catch { return null; } },
     pop() { tone(420, 900, 0.12, "sine", 0.35); },
     chime() { [784, 1047, 1319].forEach((f, i) => tone(f, f, 0.6, "triangle", 0.22, i * 0.09)); },
     sparkle() { [1319, 1568, 2093, 2637].forEach((f, i) => tone(f, f * 1.01, 0.25, "sine", 0.12, i * 0.06)); },
@@ -365,6 +366,84 @@ const sfx = (() => {
     rain() { noise(3, 4000, 2500, 0.2, "highpass"); },
   };
 })();
+
+// ---------- background music: composed live in the browser (no files, no licences) ----------
+// Gentle marimba tune over soft chords (C Am F G). Birds by day, crickets and a music box at night.
+const CHORDS = [[0, 4, 7], [9, 12, 16], [5, 9, 12], [7, 11, 14]];
+const PENTA = [0, 2, 4, 7, 9, 12, 14, 16];
+const hz = (m) => 440 * 2 ** ((m - 69) / 12);
+const seeded = (seed) => { let x = seed >>> 0 || 1; return () => ((x = (Math.imul(x ^ (x >>> 15), 2246822519) + 0x9e3779b9) >>> 0) / 4294967296); };
+function tone2(ac, out, f, t, dur, vol, type = "sine", att = 0.01, bell = 0) {
+  const o = ac.createOscillator(), g = ac.createGain();
+  o.type = type; o.frequency.value = f;
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + att); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(g).connect(out); o.start(t); o.stop(t + dur + 0.05);
+  if (bell) { // short bright overtone = marimba / music-box "tock"
+    const o2 = ac.createOscillator(), g2 = ac.createGain();
+    o2.frequency.value = f * 4; g2.gain.setValueAtTime(0.0001, t); g2.gain.exponentialRampToValueAtTime(vol * bell, t + 0.004); g2.gain.exponentialRampToValueAtTime(0.0001, t + Math.min(0.25, dur));
+    o2.connect(g2).connect(out); o2.start(t); o2.stop(t + dur);
+  }
+}
+const barLen = (night) => 4 * (night ? 60 / 70 : 60 / 92);
+/** Schedule one 4-beat bar of music at time t. Same tune every 12 bars, so it feels like a song, not noise. */
+function musicBar(ac, out, t, bar, night) {
+  const beat = barLen(night) / 4, ch = CHORDS[Math.floor(bar / 2) % 4];
+  ch.forEach((n) => tone2(ac, out, hz(60 + n), t, beat * 4.3, night ? 0.016 : 0.022, "triangle", 0.5)); // soft pad
+  const root = 36 + (ch[0] % 12);
+  [0, 2].forEach((b) => tone2(ac, out, hz(root), t + b * beat, beat * 1.8, night ? 0.05 : 0.075, "sine", 0.02)); // bass
+  const R = seeded(1 + (Math.floor(bar / 4) % 3) * 31 + (bar % 4) * 7); // the melody repeats with the phrase
+  let deg = Math.floor(R() * 5) + 1;
+  for (let s = 0; s < 8; s++) {
+    if (R() < (night ? 0.62 : 0.4)) continue;
+    deg = Math.max(0, Math.min(PENTA.length - 1, deg + Math.floor(R() * 5) - 2));
+    const m = (night ? 84 : 72) + PENTA[deg];
+    tone2(ac, out, hz(m), t + s * beat / 2, night ? 1.4 : 0.55, night ? 0.035 : 0.06, night ? "triangle" : "sine", 0.005, night ? 0.5 : 0.35);
+  }
+  if (!night && bar % 3 === 2) { const b0 = t + beat * (1 + R() * 2); for (let k = 0; k < 3; k++) { const o = ac.createOscillator(), g = ac.createGain(), tt = b0 + k * 0.13; o.frequency.setValueAtTime(2600 + R() * 600, tt); o.frequency.exponentialRampToValueAtTime(3900, tt + 0.08); g.gain.setValueAtTime(0.0001, tt); g.gain.exponentialRampToValueAtTime(0.012, tt + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, tt + 0.1); o.connect(g).connect(out); o.start(tt); o.stop(tt + 0.12); } }
+  if (night) for (let b = 0; b < 4; b++) for (let k = 0; k < 3; k++) tone2(ac, out, 4400, t + b * beat + 0.1 + k * 0.05, 0.03, 0.005, "sine", 0.004);
+}
+function musicChain(ac, dest) {
+  const inp = ac.createGain(), lp = ac.createBiquadFilter(), dl = ac.createDelay(1), fb = ac.createGain(), wet = ac.createGain();
+  lp.type = "lowpass"; lp.frequency.value = 3400; dl.delayTime.value = 0.33; fb.gain.value = 0.28; wet.gain.value = 0.3;
+  inp.connect(lp).connect(dest); lp.connect(dl); dl.connect(fb).connect(dl); dl.connect(wet).connect(dest);
+  return inp;
+}
+const music = (() => {
+  let on = true, vol = null, inp = null, timer = null, next = 0, bar = 0;
+  try { on = localStorage.getItem("pst-music") !== "off"; } catch {}
+  function tick() {
+    const ac = sfx.ac(); if (!ac) return;
+    if (next < ac.currentTime) next = ac.currentTime + 0.1;
+    while (next < ac.currentTime + 0.7) { const night = nf > 0.5; musicBar(ac, inp, next, bar++, night); next += barLen(night); }
+  }
+  function start() {
+    if (!on || timer || document.hidden) return;
+    const ac = sfx.ac(); if (!ac) return;
+    if (!vol) { vol = ac.createGain(); vol.connect(ac.destination); inp = musicChain(ac, vol); }
+    vol.gain.cancelScheduledValues(ac.currentTime); vol.gain.setValueAtTime(0.0001, ac.currentTime); vol.gain.exponentialRampToValueAtTime(0.9, ac.currentTime + 2.5);
+    next = ac.currentTime + 0.15; tick(); timer = setInterval(tick, 200);
+  }
+  function stop() { if (!timer) return; clearInterval(timer); timer = null; const ac = sfx.ac(); if (ac && vol) { vol.gain.cancelScheduledValues(ac.currentTime); vol.gain.setTargetAtTime(0.0001, ac.currentTime, 0.3); } }
+  document.addEventListener("visibilitychange", () => (document.hidden ? stop() : start()));
+  return { get on() { return on; }, start, stop, toggle() { on = !on; try { localStorage.setItem("pst-music", on ? "on" : "off"); } catch {} on ? start() : stop(); return on; } };
+})();
+/** For the Reel soundtrack: render the same music offline to a WAV (base64). */
+async function musicWav(seconds, nightAt = 1e9) {
+  const sr = 44100, ac = new OfflineAudioContext(2, Math.ceil(sr * seconds), sr);
+  const vol = ac.createGain(); vol.gain.value = 0.9; vol.connect(ac.destination);
+  const inp = musicChain(ac, vol);
+  let t = 0.05, bar = 0;
+  while (t < seconds) { const night = t >= nightAt; musicBar(ac, inp, t, bar++, night); t += barLen(night); }
+  const buf = await ac.startRendering();
+  const L = buf.getChannelData(0), Rr = buf.getChannelData(1), n = L.length, dv = new DataView(new ArrayBuffer(44 + n * 4));
+  const w = (o, str) => [...str].forEach((c, i) => dv.setUint8(o + i, c.charCodeAt(0)));
+  w(0, "RIFF"); dv.setUint32(4, 36 + n * 4, true); w(8, "WAVEfmt "); dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, 2, true);
+  dv.setUint32(24, sr, true); dv.setUint32(28, sr * 4, true); dv.setUint16(32, 4, true); dv.setUint16(34, 16, true); w(36, "data"); dv.setUint32(40, n * 4, true);
+  for (let i = 0; i < n; i++) { dv.setInt16(44 + i * 4, Math.max(-1, Math.min(1, L[i])) * 32767, true); dv.setInt16(46 + i * 4, Math.max(-1, Math.min(1, Rr[i])) * 32767, true); }
+  const bytes = new Uint8Array(dv.buffer); let bin = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(bin);
+}
 
 // ---------- night ----------
 let nightOn = false, nightTemp = 0, nf = 0, winMat = null;
@@ -1281,7 +1360,7 @@ addEventListener("blur", () => pip.keys.clear());
 // ---------- picking ----------
 const ray = new THREE.Raycaster(), ptr = new THREE.Vector2();
 let down = null;
-addEventListener("pointerdown", () => sfx.unlock(), { once: true });
+addEventListener("pointerdown", () => { sfx.unlock(); music.start(); }, { once: true });
 renderer.domElement.addEventListener("pointerdown", (e) => (down = [e.clientX, e.clientY]));
 const isNear = (p, d = 95) => camera.position.distanceTo(p) < d;
 renderer.domElement.addEventListener("pointerup", (e) => {
@@ -1342,6 +1421,9 @@ const setNightIcon = () => ($("nightBtn").textContent = nightOn ? "☀️" : "�
 $("nightBtn").onclick = () => { nightOn = !nightOn; try { localStorage.setItem("pst-night", nightOn ? "1" : "0"); } catch {} setNightIcon(); sfx.sparkle(); };
 const setSoundIcon = () => ($("soundBtn").textContent = sfx.on ? "🔊" : "🔇");
 $("soundBtn").onclick = () => { sfx.toggle(); setSoundIcon(); };
+const setMusicIcon = () => { $("musicBtn").classList.toggle("off", !music.on); $("musicBtn").setAttribute("aria-label", music.on ? "Music on (tap to turn off)" : "Music off (tap to turn on)"); };
+$("musicBtn").onclick = () => { music.toggle(); setMusicIcon(); };
+setMusicIcon();
 setNightIcon(); setSoundIcon();
 
 // ---------- boot ----------
@@ -1389,6 +1471,18 @@ setNightIcon(); setSoundIcon();
     window.__play = (id) => spotPlay.get(id)?.();
     window.__playHouse = (i) => playHouse(i);
     window.__grow = (i) => growHouse(i, 0);
+    window.__musicWav = musicWav;
+    // Pip on camera: __pip(x, y, z, rotY, flying, t)
+    window.__pip = (x, y, z, ry, flying = false, tt = 0) => {
+      bot.visible = botShadow.visible = true;
+      bot.position.set(x, y, z); bot.rotation.y = ry;
+      botBody.position.y = Math.sin(tt * 3) * 0.12; botBody.rotation.x = flying ? 0.25 : 0;
+      botArmL.rotation.z = flying ? 1.2 : 0.4 + Math.sin(tt * 4) * 0.2; botArmR.rotation.z = -botArmL.rotation.z;
+      botShadow.position.set(x, 0.47, z); botShadow.scale.setScalar(1.25 / (1 + (y - 0.45) * 0.08));
+      if (flying) burst(_lv.set(0, 0.2, -0.85).applyAxisAngle(_cv.set(0, 1, 0), ry).multiplyScalar(1.25).add(bot.position), { n: 3, colors: [C.sun, C.orange], speed: 0.6, up: -3, grav: 2, size: 0.35, life: 0.4, spread: 0.3, bounce: false });
+    };
+    window.__treasure = (x, z, e) => { treasure = emojiSprite(e); treasure.position.set(x, 1.7, z); scene.add(treasure); anim.push((t) => { if (treasure) treasure.position.y = 1.7 + Math.sin(t * 2.5) * 0.35; }); };
+    window.__collect = () => { if (!treasure) return; burst(treasure.position.clone(), { n: 60, colors: [C.sun, C.coral, C.teal, C.grape, C.sky], speed: 6, up: 8, grav: 10, size: 0.4, life: 1.6 }); scene.remove(treasure); treasure = null; };
     window.__night = (v) => { nightOn = !!v; nf = v ? 1 : 0; applyNight(); };
     window.__filmReady = true;
     return;
