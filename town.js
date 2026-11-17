@@ -1,5 +1,9 @@
 import * as THREE from "three";
 import { MapControls } from "three/addons/controls/MapControls.js";
+import { ITEMS, today, dayNumber } from "./discovery.js";
+
+const DN = dayNumber();
+const TODAY = today(DN);
 
 // ---------- brand ----------
 const C = {
@@ -41,7 +45,7 @@ const blockCenter = (bx, bz) => new THREE.Vector3(bx * PX, 0, bz * PZ);
 
 function layoutLots(needed) {
   const blocks = [];
-  let r = 1;
+  let r = Math.max(...SPOTS.map((s) => Math.max(Math.abs(s.b[0]), Math.abs(s.b[1])))); // every science spot sits inside the roads
   const lots = () => blocks.length * LOTS_X * LOTS_Z;
   while (true) {
     blocks.length = 0;
@@ -112,11 +116,14 @@ function houseParts(d) {
     part("roof", "roof", ROOFS[d.r], [0, 2.6, 0], [4.1, 1.8, 3.7]),
     part("x", "box", "#c75b4a", [1.0, 2.8, -0.5], [0.5, 1.2, 0.5]),
     part("x", "box", "#7a5534", [0, 0, 1.5], [0.8, 1.45, 0.12]),
-    part("x", "box", "#bde7ff", [-1.05, 1.1, 1.5], [0.7, 0.7, 0.12]),
-    part("x", "box", "#bde7ff", [1.05, 1.1, 1.5], [0.7, 0.7, 0.12]),
+    part("win", "box", "#bde7ff", [-1.05, 1.1, 1.5], [0.7, 0.7, 0.12]),
+    part("win", "box", "#bde7ff", [1.05, 1.1, 1.5], [0.7, 0.7, 0.12]),
+    part("win", "box", "#bde7ff", [-0.8, 1.1, -1.5], [0.7, 0.7, 0.12]),
+    part("win", "box", "#bde7ff", [0.8, 1.1, -1.5], [0.7, 0.7, 0.12]),
     part("x", "box", "#efe2c4", [0, 0, 1.6], [0.9, 0.06, 1.3]),
   ];
   const gx = 2.15, gz = 1.6;
+  const g0 = P.length;
   switch (d.g) {
     case 1: // telescope
       P.push(part("x", "cyl", C.ink, [-gx, 0, gz], [0.12, 0.9, 0.12]));
@@ -142,6 +149,8 @@ function houseParts(d) {
       P.push(part("x", "box", C.sun, [gx, 2.6, gz - 0.05], [2.2, 0.18, 0.08], [0, 0, 0]));
       break;
   }
+  P.slice(g0).forEach((p) => (p.role = "gad"));
+  const p0 = P.length;
   if (d.p) {
     const col = ["", C.orange, "#a0703f", "#ffffff"][d.p];
     const px = d.g === 2 || d.g === 3 || d.g === 5 ? -1.6 : 1.5;
@@ -152,6 +161,7 @@ function houseParts(d) {
     P.push(part("x", "box", col, [px + 0.46, 0.62, 2.68], [0.08, ear, 0.08]));
     P.push(part("x", "box", C.ink, [px + 0.56, 0.4, 2.6], [0.04, 0.06, 0.18]));
   }
+  P.slice(p0).forEach((p) => (p.role = "pet"));
   return P;
 }
 
@@ -161,9 +171,9 @@ class Batcher {
   add(p, world, tag) {
     const key = `${p.k}|${p.g}`;
     if (!this.groups.has(key)) this.groups.set(key, { k: p.k, g: p.g, items: [] });
-    this.groups.get(key).items.push({ m: new THREE.Matrix4().multiplyMatrices(world, p.m), c: p.c, tag });
+    this.groups.get(key).items.push({ m: new THREE.Matrix4().multiplyMatrices(world, p.m), c: p.c, tag, role: p.role });
   }
-  build(scene) {
+  build(scene, inst) {
     const meshes = [];
     for (const { k, g, items } of this.groups.values()) {
       const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.85, flatShading: g === "roof" });
@@ -173,6 +183,8 @@ class Batcher {
       mesh.instanceMatrix.needsUpdate = true;
       mesh.castShadow = mesh.receiveShadow = true;
       mesh.userData = { kind: k, tags: items.map((it) => it.tag) };
+      // per-house instance list, so a house can grow, hide its gadget or play
+      if (inst) items.forEach((it, idx) => { if (it.tag !== undefined) { if (!inst.has(it.tag)) inst.set(it.tag, []); inst.get(it.tag).push({ mesh, idx, role: it.role, base: it.m }); } });
       scene.add(mesh);
       meshes.push(mesh);
     }
@@ -238,7 +250,8 @@ controls.minDistance = 18;
 controls.maxDistance = 420;
 controls.screenSpacePanning = false;
 
-scene.add(new THREE.HemisphereLight("#ffffff", "#9bd18b", 1.15));
+const hemi = new THREE.HemisphereLight("#ffffff", "#9bd18b", 1.15);
+scene.add(hemi);
 const sun = new THREE.DirectionalLight("#fff4dc", 1.9);
 sun.castShadow = true;
 sun.shadow.mapSize.set(small ? 1024 : 2048, small ? 1024 : 2048);
@@ -246,6 +259,140 @@ sun.shadow.bias = -0.0004;
 scene.add(sun, sun.target);
 
 const anim = []; // per-frame callbacks
+let NOW = 0; // seconds, set every frame
+
+// ---------- fun: tweens, particles, camera shake, sound ----------
+const tweens = [];
+function tween(dur, fn, done) { tweens.push({ t0: NOW, dur, fn, done }); }
+anim.push(() => {
+  for (let i = tweens.length - 1; i >= 0; i--) {
+    const w = tweens[i], k = Math.min(1, (NOW - w.t0) / w.dur);
+    w.fn(k);
+    if (k >= 1) { tweens.splice(i, 1); w.done && w.done(); }
+  }
+});
+const later = (s, fn) => tween(s, () => {}, fn);
+const backOut = (k) => 1 + 2.70158 * (k - 1) ** 3 + 1.70158 * (k - 1) ** 2;
+
+const PMAX = 700, ZERO = new THREE.Matrix4().makeScale(0, 0, 0);
+const pMesh = new THREE.InstancedMesh(new THREE.SphereGeometry(0.5, 8, 6), new THREE.MeshBasicMaterial({ color: 0xffffff }), PMAX);
+pMesh.frustumCulled = false;
+pMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+const _pc = new THREE.Color(), _pq = new THREE.Quaternion(), _ps = new THREE.Vector3(), _pm = new THREE.Matrix4();
+for (let i = 0; i < PMAX; i++) { pMesh.setMatrixAt(i, ZERO); pMesh.setColorAt(i, _pc.set(0xffffff)); }
+scene.add(pMesh);
+const parts = new Array(PMAX).fill(null);
+let pNext = 0;
+/** Spray little balls: lava, sparks, bubbles, rain, confetti… */
+function burst(pos, { n = 30, colors = [C.sun], speed = 6, up = 6, grav = 14, size = 0.5, life = 1.2, spread = 1, drag = 0, bounce = true } = {}) {
+  for (let k = 0; k < n; k++) {
+    const i = pNext; pNext = (pNext + 1) % PMAX;
+    const a = Math.random() * Math.PI * 2, r = Math.random() * speed;
+    parts[i] = {
+      p: pos.clone().add(new THREE.Vector3((Math.random() - 0.5) * spread, 0, (Math.random() - 0.5) * spread)),
+      v: new THREE.Vector3(Math.cos(a) * r, up * (0.6 + Math.random() * 0.6), Math.sin(a) * r),
+      g: grav, s: size * (0.6 + Math.random() * 0.8), life: life * (0.7 + Math.random() * 0.6), age: 0, drag, bounce,
+    };
+    pMesh.setColorAt(i, _pc.set(colors[k % colors.length]));
+  }
+  pMesh.instanceColor.needsUpdate = true;
+}
+anim.push((t, dt) => {
+  let any = false;
+  for (let i = 0; i < PMAX; i++) {
+    const q = parts[i];
+    if (!q) continue;
+    any = true;
+    q.age += dt;
+    if (q.age >= q.life) { parts[i] = null; pMesh.setMatrixAt(i, ZERO); continue; }
+    q.v.y -= q.g * dt;
+    if (q.drag) q.v.multiplyScalar(1 - Math.min(1, q.drag * dt));
+    q.p.addScaledVector(q.v, dt);
+    if (q.bounce && q.p.y < 0.45) { q.p.y = 0.45; q.v.y *= -0.35; q.v.x *= 0.7; q.v.z *= 0.7; }
+    const s = q.s * (1 - (q.age / q.life) ** 3);
+    pMesh.setMatrixAt(i, _pm.compose(q.p, _pq, _ps.set(s, s, s)));
+  }
+  if (any) pMesh.instanceMatrix.needsUpdate = true;
+});
+
+let shakeAmp = 0, shakeT0 = 0, shakeDur = 1;
+function shake(amp, dur) { shakeAmp = amp; shakeT0 = NOW; shakeDur = dur; }
+
+const sfx = (() => {
+  let ac, master;
+  let on = true;
+  try { on = localStorage.getItem("pst-sound") !== "off"; } catch {}
+  const ctx = () => {
+    if (!ac) { ac = new (window.AudioContext || window.webkitAudioContext)(); master = ac.createGain(); master.gain.value = 0.5; master.connect(ac.destination); }
+    if (ac.state === "suspended") ac.resume();
+    return ac;
+  };
+  function tone(f0, f1, dur, type = "sine", vol = 0.3, delay = 0) {
+    if (!on) return;
+    try {
+      const a = ctx(), t = a.currentTime + delay, o = a.createOscillator(), g = a.createGain();
+      o.type = type; o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(Math.max(1, f1), t + dur);
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.015); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      o.connect(g).connect(master); o.start(t); o.stop(t + dur + 0.05);
+    } catch {}
+  }
+  function noise(dur, f0, f1, vol = 0.3, type = "lowpass", delay = 0) {
+    if (!on) return;
+    try {
+      const a = ctx(), t = a.currentTime + delay, len = Math.ceil(a.sampleRate * dur), b = a.createBuffer(1, len, a.sampleRate), d = b.getChannelData(0);
+      for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+      const s = a.createBufferSource(); s.buffer = b;
+      const f = a.createBiquadFilter(); f.type = type; f.frequency.setValueAtTime(f0, t); f.frequency.exponentialRampToValueAtTime(f1, t + dur);
+      const g = a.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.05); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      s.connect(f).connect(g).connect(master); s.start(t);
+    } catch {}
+  }
+  return {
+    get on() { return on; },
+    toggle() { on = !on; try { localStorage.setItem("pst-sound", on ? "on" : "off"); } catch {} if (on) this.pop(); return on; },
+    unlock() { if (on) try { ctx(); } catch {} },
+    pop() { tone(420, 900, 0.12, "sine", 0.35); },
+    chime() { [784, 1047, 1319].forEach((f, i) => tone(f, f, 0.6, "triangle", 0.22, i * 0.09)); },
+    sparkle() { [1319, 1568, 2093, 2637].forEach((f, i) => tone(f, f * 1.01, 0.25, "sine", 0.12, i * 0.06)); },
+    fanfare() { [523, 659, 784, 1047, 784, 1047].forEach((f, i) => tone(f, f, i === 5 ? 0.7 : 0.16, "triangle", 0.22, i * 0.11)); },
+    whoosh() { noise(1.4, 300, 3200, 0.4, "bandpass"); },
+    rumble() { noise(1.5, 220, 60, 0.7, "lowpass"); tone(70, 40, 1.3, "sawtooth", 0.12); },
+    roar() { tone(190, 70, 1.1, "sawtooth", 0.22); tone(140, 60, 1.1, "square", 0.08); noise(1.0, 900, 200, 0.25, "bandpass"); },
+    splash() { noise(0.5, 2600, 500, 0.35, "highpass"); },
+    clang() { [0, 0.2, 0.4].forEach((d) => tone(1250, 1150, 0.14, "square", 0.07, d)); },
+    boing() { [0, 0.33, 0.66].forEach((d) => tone(220, 660, 0.22, "sine", 0.28, d)); },
+    beep() { [0, 0.25, 0.5].forEach((d) => tone(1400, 1400, 0.09, "sine", 0.15, d)); },
+    rain() { noise(3, 4000, 2500, 0.2, "highpass"); },
+  };
+})();
+
+// ---------- night ----------
+let nightOn = false, nightTemp = 0, nf = 0, winMat = null;
+try { nightOn = localStorage.getItem("pst-night") === "1"; } catch {}
+const DAY_BG = new THREE.Color("#bde7ff"), NIGHT_BG = new THREE.Color("#1d2452"), SUN_DAY = new THREE.Color("#fff4dc"), SUN_NIGHT = new THREE.Color("#9fb4ff");
+const stars = (() => {
+  const n = 700, pos = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * Math.PI * 2, e = 0.12 + Math.random() * 1.3, r = 900;
+    pos.set([Math.cos(a) * Math.cos(e) * r, Math.sin(e) * r, Math.sin(a) * Math.cos(e) * r], i * 3);
+  }
+  const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  const p = new THREE.Points(g, new THREE.PointsMaterial({ color: 0xffffff, size: 2.2, sizeAttenuation: false, transparent: true, opacity: 0, fog: false, depthWrite: false }));
+  p.visible = false; scene.add(p); return p;
+})();
+function applyNight() {
+  scene.background.copy(DAY_BG).lerp(NIGHT_BG, nf);
+  scene.fog.color.copy(scene.background);
+  hemi.intensity = 1.15 - 0.8 * nf;
+  sun.intensity = 1.9 - 1.55 * nf;
+  sun.color.copy(SUN_DAY).lerp(SUN_NIGHT, nf);
+  if (winMat) winMat.emissiveIntensity = nf * 1.4;
+  stars.material.opacity = nf; stars.visible = nf > 0.02;
+}
+anim.push((t, dt) => {
+  const target = nightOn || NOW < nightTemp ? 1 : 0;
+  if (Math.abs(nf - target) > 0.002) { nf += (target - nf) * Math.min(1, dt * 2.5); if (Math.abs(nf - target) < 0.003) nf = target; applyNight(); }
+});
 
 // ---------- spots (science buildings) ----------
 function scaffold(g) {
@@ -256,62 +403,133 @@ function scaffold(g) {
   const cone = (x) => g.add(mesh("cone", C.orange, [x, 0, 5.2], [0.8, 1.3, 0.8]));
   cone(-4); cone(4);
 }
+const spotPlay = new Map(); // spot id -> play()
 function buildSpot(s, open) {
   const g = new THREE.Group();
   const c = blockCenter(...s.b);
   g.position.copy(c);
+  const W = (x, y, z) => new THREE.Vector3(x, y, z).add(g.position);
+  let busy = false;
+  const once = (dur, fn) => { if (busy) return; busy = true; fn(); later(dur, () => (busy = false)); };
+  let play = () => {};
   g.add(mesh("box", "#e9dcc0", [0, 0, 0], [BW, 0.42, BD]));
-  if (!open) { scaffold(g); }
-  else if (s.id === "pip") {
+  if (!open) {
+    scaffold(g);
+    // locked: the builders are busy
+    play = () => once(1, () => {
+      sfx.clang();
+      [0, 0.2, 0.4].forEach((d, i) => later(d, () => burst(W(-5 + i * 5, i % 2 ? 6.9 : 3.5, 3.2), { n: 18, colors: [C.sun, C.orange, "#fff3b0"], speed: 4, up: 5, grav: 14, size: 0.28, life: 0.8 })));
+    });
+  } else if (s.id === "pip") {
     g.add(mesh("cyl", C.cream, [6, 0, -1], [7, 11, 7]));
     g.add(mesh("cyl", C.coral, [6, 9, -1], [7.3, 1, 7.3]));
     g.add(mesh("ball", C.teal, [6, 11, -1], [7, 7, 7]));
     g.add(mesh("cyl", C.ink, [6, 14, -1], [0.25, 3, 0.25]));
     const bulb = mesh("ball", C.sun, [6, 17.3, -1], [1.1, 1.1, 1.1], [0, 0, 0], { emissive: C.sun, emissiveIntensity: 0.6 });
     g.add(bulb);
-    anim.push((t) => (bulb.material.emissiveIntensity = 0.4 + 0.4 * Math.sin(t * 3)));
+    let flash = -9;
+    anim.push((t) => (bulb.material.emissiveIntensity = NOW - flash < 1.2 ? 2.5 : 0.4 + 0.4 * Math.sin(t * 3) + nf * 0.8));
     g.add(mesh("box", "#7a5534", [6, 0, 2.5], [2, 3, 0.4]));
     // Pip statue
     const pip = new THREE.Group();
     pip.position.set(-6, 0, 0.5);
     pip.add(mesh("cyl", "#d9d2c3", [0, 0, 0], [4, 1.2, 4]));
-    pip.add(mesh("box", C.teal, [0, 1.2, 0], [2.4, 2.6, 1.8]));
-    pip.add(mesh("box", C.white, [0, 3.9, 0], [3.2, 2.4, 2.4]));
-    pip.add(mesh("ball", C.ink, [-0.65, 5.1, 1.2], [0.6, 0.6, 0.3]));
-    pip.add(mesh("ball", C.ink, [0.65, 5.1, 1.2], [0.6, 0.6, 0.3]));
-    pip.add(mesh("box", C.coral, [0, 4.4, 1.2], [1, 0.2, 0.1]));
-    pip.add(mesh("cyl", C.ink, [0, 6.3, 0], [0.15, 1, 0.15]));
-    pip.add(mesh("ball", C.coral, [0, 7.4, 0], [0.6, 0.6, 0.6]));
-    pip.add(mesh("box", C.teal, [-1.6, 2.6, 0], [0.5, 1.6, 0.5], [0, 0, 0.5]));
-    pip.add(mesh("box", C.teal, [1.6, 2.6, 0], [0.5, 1.6, 0.5], [0, 0, -0.5]));
+    const body = new THREE.Group();
+    body.add(mesh("box", C.teal, [0, 1.2, 0], [2.4, 2.6, 1.8]));
+    body.add(mesh("box", C.white, [0, 3.9, 0], [3.2, 2.4, 2.4]));
+    body.add(mesh("ball", C.ink, [-0.65, 5.1, 1.2], [0.6, 0.6, 0.3]));
+    body.add(mesh("ball", C.ink, [0.65, 5.1, 1.2], [0.6, 0.6, 0.3]));
+    body.add(mesh("box", C.coral, [0, 4.4, 1.2], [1, 0.2, 0.1]));
+    body.add(mesh("cyl", C.ink, [0, 6.3, 0], [0.15, 1, 0.15]));
+    body.add(mesh("ball", C.coral, [0, 7.4, 0], [0.6, 0.6, 0.6]));
+    const armL = mesh("box", C.teal, [-1.6, 2.6, 0], [0.5, 1.6, 0.5], [0, 0, 0.5]);
+    const armR = mesh("box", C.teal, [1.6, 2.6, 0], [0.5, 1.6, 0.5], [0, 0, -0.5]);
+    body.add(armL, armR);
+    pip.add(body);
     g.add(pip);
-    anim.push((t) => (pip.children.slice(1).forEach((m) => (m.position.y += Math.sin(t * 2.4) * 0.004))));
+    let jumping = false;
+    anim.push((t) => { if (!jumping) body.position.y = 0.6 + Math.sin(t * 2.4) * 0.25; });
     for (const x of [-11, 11]) g.add(mesh("ball", "#5cb85c", [x, 1.5, -4], [2.4, 2.8, 2.4]));
+    play = () => once(1.4, () => {
+      sfx.boing(); later(0.9, () => sfx.chime());
+      flash = NOW; jumping = true;
+      tween(1.1, (k) => {
+        body.position.y = 0.6 + Math.abs(Math.sin(k * Math.PI * 2)) * 3.2;
+        body.rotation.y = backOut(k) * Math.PI * 2;
+        armL.rotation.z = 0.5 + Math.sin(k * Math.PI * 6) * 0.9; armR.rotation.z = -armL.rotation.z;
+      }, () => { jumping = false; body.rotation.y = 0; armL.rotation.z = 0.5; armR.rotation.z = -0.5; });
+      later(0.85, () => burst(W(-6, 9, 0.5), { n: 50, colors: [C.sun, C.coral, C.teal, C.grape, C.sky], speed: 7, up: 9, grav: 10, size: 0.45, life: 1.6 }));
+    });
   } else if (s.id === "volcano") {
-    g.add(mesh("cone", "#8d6748", [0, 0, -1], [13, 7, 10]));
+    const cone = mesh("cone", "#8d6748", [0, 0, -1], [13, 7, 10]);
+    g.add(cone);
     g.add(mesh("cyl", C.coral, [0, 6.3, -1], [2.6, 0.5, 2.1], [0, 0, 0], { emissive: C.coral, emissiveIntensity: 0.5 }));
     const puffs = [0, 1, 2].map((i) => { const p = mesh("ball", "#eeeeee", [0, 8, -1], [1.6, 1.6, 1.6]); g.add(p); return p; });
     anim.push((t) => puffs.forEach((p, i) => { const k = (t * 0.35 + i / 3) % 1; p.position.y = 7.5 + k * 7; p.position.x = Math.sin(k * 6 + i) * 1.2; p.scale.setScalar(1 + k * 2.2); p.material.opacity = 1 - k; p.material.transparent = true; }));
     g.add(mesh("box", C.cream, [8, 0, 3], [5, 3, 3]));
+    play = () => once(2.4, () => {
+      sfx.rumble(); shake(0.9, 1.4);
+      tween(0.6, (k) => cone.scale.set(13 * (1 + Math.sin(k * Math.PI) * 0.06), 7 * (1 + Math.sin(k * Math.PI * 3) * 0.05), 10));
+      const lava = { colors: [C.coral, C.orange, C.sun, "#ff3b1f"], speed: 7, up: 17, grav: 18, size: 0.95, life: 2.4, spread: 1.6 };
+      later(0.35, () => burst(W(0, 7, -1), { n: 110, ...lava }));
+      later(0.8, () => burst(W(0, 7, -1), { n: 70, ...lava, up: 12 }));
+      later(0.4, () => burst(W(0, 9, -1), { n: 25, colors: ["#d9d9d9", "#f2f2f2"], speed: 2, up: 4, grav: -2, size: 2.2, life: 2.5, bounce: false }));
+    });
   } else if (s.id === "aquarium") {
     g.add(mesh("cyl", C.cream, [0, 0, 0], [16, 1.4, 10]));
     g.add(mesh("ball", C.sky, [0, 1.4, 0], [14, 10, 9], [0, 0, 0], { transparent: true, opacity: 0.45 }));
     const fish = [0, 1, 2, 3].map((i) => { const f = mesh("box", [C.orange, C.coral, C.sun, C.grape][i], [0, 3 + i, 0], [1.2, 0.6, 0.3]); g.add(f); return f; });
-    anim.push((t) => fish.forEach((f, i) => { const a = t * (0.6 + i * 0.15) + i; f.position.x = Math.cos(a) * (3 + i); f.position.z = Math.sin(a) * 2; f.rotation.y = -a; }));
+    let jump = -9;
+    anim.push((t) => fish.forEach((f, i) => {
+      const a = t * (0.6 + i * 0.15) + i; f.position.x = Math.cos(a) * (3 + i); f.position.z = Math.sin(a) * 2; f.rotation.y = -a;
+      const j = (NOW - jump - i * 0.15) / 1.3;
+      f.position.y = 3 + i + (j > 0 && j < 1 ? Math.sin(j * Math.PI) * (9 - i) : 0);
+      f.rotation.z = j > 0 && j < 1 ? Math.PI * 2 * j : 0;
+    }));
+    play = () => once(2, () => {
+      jump = NOW; sfx.splash(); later(1.2, () => sfx.splash());
+      burst(W(0, 7, 0), { n: 50, colors: ["#ffffff", C.sky, "#bdf0ff"], speed: 3, up: 3, grav: -3, size: 0.55, life: 2.2, bounce: false });
+      later(0.2, () => burst(W(0, 8.5, 0), { n: 40, colors: [C.sky, "#ffffff"], speed: 5, up: 8, grav: 16, size: 0.35, life: 1.2 }));
+    });
   } else if (s.id === "weather") {
     g.add(mesh("box", C.cream, [0, 0, 0], [5, 3, 5]));
     g.add(mesh("cyl", C.white, [0, 3, 0], [1.4, 12, 1.4]));
     const spin = new THREE.Group(); spin.position.set(0, 15.5, 0);
     for (let i = 0; i < 3; i++) { const a = mesh("box", C.ink, [0, 0, 0], [3, 0.15, 0.15]); a.rotation.y = (i * Math.PI * 2) / 3; a.position.set(Math.cos(a.rotation.y) * 1.5, 0, -Math.sin(a.rotation.y) * 1.5); spin.add(a); const cup = mesh("ball", C.coral, [Math.cos(a.rotation.y) * 3, 0, -Math.sin(a.rotation.y) * 3], [0.8, 0.8, 0.8]); spin.add(cup); }
-    g.add(spin); anim.push((t) => (spin.rotation.y = t * 2));
+    let fast = -9, ang = 0;
+    g.add(spin); anim.push((t, dt) => { ang += dt * (NOW - fast < 4 ? 9 : 2); spin.rotation.y = ang; });
     for (const [x, y] of [[-5, 18], [-3, 19], [-1, 18]]) g.add(mesh("ball", C.white, [x, y, 0], [3, 2.4, 2.4]));
+    const bow = new THREE.Group(); bow.position.set(0, 0.4, -2.5); bow.visible = false; g.add(bow);
+    ["#ff5a5a", "#ff9f1c", "#ffd23c", "#4cd06b", "#4cc9f0", "#7b61ff"].forEach((col, i) => {
+      const m = new THREE.Mesh(new THREE.TorusGeometry(10.5 - i * 0.55, 0.3, 6, 48, Math.PI), new THREE.MeshBasicMaterial({ color: col, transparent: true }));
+      bow.add(m);
+    });
+    play = () => once(6, () => {
+      fast = NOW; sfx.rain();
+      tween(2.6, () => { for (let k = 0; k < 3; k++) burst(W(-7 + Math.random() * 8, 17, (Math.random() - 0.5) * 2.5), { n: 1, colors: [C.sky, "#9ad8ff"], speed: 0.2, up: -14, grav: 12, size: 0.32, life: 1.3, spread: 0 }); });
+      later(2.4, () => {
+        sfx.sparkle(); bow.visible = true;
+        tween(3.4, (k) => { const s = k < 0.25 ? backOut(k / 0.25) : 1; bow.scale.set(s, s, s); bow.children.forEach((m) => (m.material.opacity = k > 0.75 ? (1 - k) * 4 : 1)); }, () => (bow.visible = false));
+      });
+    });
   } else if (s.id === "planetarium") {
     g.add(mesh("box", C.cream, [0, 0, 0], [14, 4, 8]));
     g.add(mesh("ball", C.grape, [0, 4, 0], [10, 8, 7]));
     const sat = new THREE.Group(); sat.position.set(8, 11, 0);
     sat.add(mesh("ball", C.sun, [0, 0, 0], [3, 3, 3]));
     const ring = new THREE.Mesh(new THREE.TorusGeometry(2.6, 0.25, 8, 40), mat(C.orange)); ring.rotation.x = 1.2; sat.add(ring);
-    g.add(sat); anim.push((t) => (sat.rotation.y = t * 0.5));
+    let fastP = -9, angP = 0;
+    g.add(sat); anim.push((t, dt) => { angP += dt * (NOW - fastP < 6 ? 3 : 0.5); sat.rotation.y = angP; });
+    play = () => once(7, () => {
+      fastP = NOW; nightTemp = NOW + 7; sfx.sparkle(); later(1.5, () => sfx.sparkle());
+      for (let i = 0; i < 6; i++) later(1 + i * 0.9, () => {
+        const from = W(-60 + Math.random() * 40, 70 + Math.random() * 25, -40 + Math.random() * 30);
+        const star = new THREE.Mesh(new THREE.SphereGeometry(0.8, 8, 6), new THREE.MeshBasicMaterial({ color: "#fff6c8", fog: false }));
+        star.scale.set(6, 0.4, 0.4); star.rotation.z = -0.35; scene.add(star);
+        tween(0.9, (k) => { star.position.copy(from).add(new THREE.Vector3(k * 80, -k * 28, k * 20)); star.material.opacity = 1 - k; star.material.transparent = true; }, () => scene.remove(star));
+      });
+      burst(W(0, 9, 0), { n: 40, colors: ["#ffffff", C.sun, "#c9b8ff"], speed: 4, up: 3, grav: -1, size: 0.35, life: 3, bounce: false });
+    });
   } else if (s.id === "dino") {
     g.add(mesh("box", C.cream, [0, 0, -1.5], [16, 5, 6]));
     g.add(mesh("box", C.coral, [0, 5, -1.5], [17, 0.8, 7]));
@@ -319,28 +537,44 @@ function buildSpot(s, open) {
     const d = new THREE.Group(); d.position.set(0, 0, 4.5); d.scale.setScalar(0.8);
     d.add(mesh("ball", C.teal, [0, 3, 0], [6, 3.4, 3]));
     for (const [x, z] of [[-1.8, -0.8], [-1.8, 0.8], [1.8, -0.8], [1.8, 0.8]]) d.add(mesh("cyl", C.teal, [x, 0, z], [0.8, 2.4, 0.8]));
-    d.add(mesh("cyl", C.teal, [3.6, 3.6, 0], [0.9, 4.5, 0.9], [0, 0, -0.5]));
-    d.add(mesh("ball", C.teal, [5.6, 7.6, 0], [1.6, 1.1, 1.1]));
+    const neck = new THREE.Group(); neck.position.set(3, 4, 0); d.add(neck);
+    neck.add(mesh("cyl", C.teal, [0.6, -0.4, 0], [0.9, 4.5, 0.9], [0, 0, -0.5]));
+    neck.add(mesh("ball", C.teal, [2.6, 3.6, 0], [1.6, 1.1, 1.1]));
     d.add(mesh("cone", C.teal, [-4.2, 2.6, 0], [1.4, 4, 1.4], [0, 0, 1.75]));
     g.add(d);
+    play = () => once(1.8, () => {
+      sfx.roar(); shake(0.7, 1);
+      tween(1.4, (k) => { neck.rotation.z = Math.sin(k * Math.PI) * 0.45 + Math.sin(k * Math.PI * 10) * 0.05 * (1 - k); d.position.y = Math.abs(Math.sin(k * Math.PI * 3)) * 0.6; });
+      [0.2, 0.6, 1.0].forEach((t) => later(t, () => burst(W(0, 0.6, 4.5), { n: 18, colors: ["#d8c8a8", "#c2b190"], speed: 5, up: 2, grav: 6, size: 0.6, life: 0.9, spread: 3 })));
+    });
   } else if (s.id === "rocket") {
     g.add(mesh("cyl", "#9aa0ad", [0, 0, 0], [12, 1, 9]));
-    g.add(mesh("cyl", C.white, [0, 1, 0], [3, 12, 3]));
-    g.add(mesh("cone", C.coral, [0, 13, 0], [3, 4, 3]));
-    for (const r of [0, Math.PI / 2]) g.add(mesh("box", C.grape, [0, 1, 0], [6, 3, 0.3], [0, r, 0]));
+    const rk = new THREE.Group(); g.add(rk);
+    rk.add(mesh("cyl", C.white, [0, 1, 0], [3, 12, 3]));
+    rk.add(mesh("cone", C.coral, [0, 13, 0], [3, 4, 3]));
+    for (const r of [0, Math.PI / 2]) rk.add(mesh("box", C.grape, [0, 1, 0], [6, 3, 0.3], [0, r, 0]));
     g.add(mesh("box", C.orange, [5, 1, 0], [0.6, 10, 0.6]));
+    play = () => once(4.5, () => {
+      sfx.whoosh(); shake(0.4, 1.2);
+      tween(3, (k) => {
+        rk.position.y = k ** 2.2 * 160;
+        burst(W(0, rk.position.y + 0.8, 0), { n: 3, colors: [C.sun, C.orange, C.coral], speed: 1.5, up: -6, grav: 4, size: 0.8, life: 0.7, spread: 1.4 });
+        if (k < 0.3) burst(W(0, 1, 0), { n: 1, colors: ["#e6e6e6", "#cfcfcf"], speed: 6, up: 1, grav: -1, size: 2, life: 1.8, bounce: false });
+      }, () => { rk.position.y = 0; tween(0.6, (k) => rk.scale.setScalar(backOut(k))); sfx.pop(); });
+    });
   }
   const lb = label(`${s.e} ${s.name}`, { bg: open ? C.sun : "#ffe2c2", size: 1.25 });
   lb.position.set(0, open ? (s.id === "pip" ? 19 : 15) : 9.5, 0);
   g.add(lb);
   if (!open) { const sign = label(`Opens at ${s.at} families`, { bg: C.white, size: 0.9 }); sign.position.set(0, 7.6, 0); g.add(sign); }
   g.traverse((o) => (o.userData.spot = s));
+  spotPlay.set(s.id, play);
   scene.add(g);
   return g;
 }
 
 // ---------- town ----------
-const state = { houses: [], lots: [], byHandle: new Map(), meshes: [], labels: new Map(), extent: 60, spotGroups: [] };
+const state = { houses: [], lots: [], byHandle: new Map(), meshes: [], labels: new Map(), extent: 60, spotGroups: [], inst: new Map() };
 const norm = (s) => (s || "").trim().replace(/^@/, "").toLowerCase();
 
 function buildTown(houses) {
@@ -402,7 +636,10 @@ function buildTown(houses) {
     if (rnd() < 0.5) B.add(part("x", "cone", "#3f9e4d", [0, 1.2, 0], [3, 4.5, 3]), tm);
     else B.add(part("x", "ball", "#5cb85c", [0, 3, 0], [3.4, 3.4, 3.4]), tm);
   }
-  state.meshes = B.build(scene);
+  state.meshes = B.build(scene, state.inst);
+  const wm = state.meshes.find((m) => m.userData.kind === "win");
+  if (wm) { winMat = wm.material; winMat.emissive.set("#ffc857"); winMat.emissiveIntensity = 0; }
+  applyNight();
 
   // spots
   state.spotGroups = SPOTS.map((s) => buildSpot(s, n >= s.at));
@@ -469,7 +706,8 @@ function showLabel(i, big) {
     scene.remove(state.labels.get(i));
   }
   const lot = state.lots[i];
-  const s = label(`@${h.h}`, { bg: big ? C.sun : C.white, size: big ? 0.8 : 0.55 });
+  const fresh = h.t === TODAY.day;
+  const s = label(`${fresh ? "🆕 " : ""}@${h.h}`, { bg: big ? C.sun : fresh ? "#c9f2c4" : C.white, size: big ? 0.8 : 0.55 });
   s.position.set(lot.x, 5.6, lot.z);
   s.userData.big = big;
   scene.add(s);
@@ -499,6 +737,198 @@ marker.visible = false;
 scene.add(marker);
 anim.push((t) => { if (marker.visible) { marker.position.y = 10 + Math.sin(t * 4) * 0.8; marker.rotation.y = t * 2; } });
 
+// ---------- houses that come alive ----------
+const lotMatrix = (lot) => new THREE.Matrix4().compose(new THREE.Vector3(lot.x, 0.4, lot.z), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, lot.face, 0)), new THREE.Vector3(1, 1, 1));
+const _gm = new THREE.Matrix4(), _gs = new THREE.Matrix4(), _gt = new THREE.Matrix4();
+
+/** The house pops up out of the ground (new families, welcome). */
+function growHouse(i, delay = 0) {
+  const recs = state.inst.get(i), lot = state.lots[i];
+  if (!recs || !lot) return;
+  const set = (s) => {
+    _gs.makeScale(0.55 + 0.45 * Math.min(1, s), s, 0.55 + 0.45 * Math.min(1, s));
+    _gt.makeTranslation(lot.x, 0.4, lot.z).multiply(_gs).multiply(_gm.makeTranslation(-lot.x, -0.4, -lot.z));
+    const touched = new Set();
+    recs.forEach((r) => { r.mesh.setMatrixAt(r.idx, s <= 0.001 ? ZERO : new THREE.Matrix4().multiplyMatrices(_gt, r.base)); touched.add(r.mesh); });
+    touched.forEach((m) => (m.instanceMatrix.needsUpdate = true));
+  };
+  set(0);
+  later(delay, () => {
+    sfx.pop();
+    burst(new THREE.Vector3(lot.x, 0.6, lot.z), { n: 26, colors: ["#e8dcc4", "#d6c7a6", "#ffffff"], speed: 6, up: 3, grav: 8, size: 0.7, life: 1, spread: 3 });
+    tween(0.9, (k) => set(Math.max(0.001, backOut(k))), () => {
+      set(1);
+      burst(new THREE.Vector3(lot.x, 6, lot.z), { n: 30, colors: [C.sun, C.coral, C.teal, C.grape], speed: 5, up: 7, grav: 12, size: 0.35, life: 1.3 });
+    });
+  });
+}
+
+/** Tap a house: its science gadget goes and its pet hops. */
+const playing = new Set();
+function playHouse(i) {
+  if (playing.has(i) || !state.inst.has(i)) return;
+  playing.add(i);
+  const d = designFor(state.houses[i]), lot = state.lots[i], Wm = lotMatrix(lot);
+  const P = houseParts(d), recs = state.inst.get(i);
+  const show = (role, v) => { recs.filter((r) => r.role === role).forEach((r) => { r.mesh.setMatrixAt(r.idx, v ? r.base : ZERO); r.mesh.instanceMatrix.needsUpdate = true; }); };
+  const wrap = new THREE.Group(); wrap.position.set(lot.x, 0.4, lot.z); wrap.rotation.y = lot.face; scene.add(wrap);
+  const build = (ps, pivot, parent = wrap) => {
+    const grp = new THREE.Group(); grp.position.copy(pivot);
+    ps.forEach((p) => { const m = new THREE.Mesh(G[p.g], mat(p.c)); m.applyMatrix4(p.m); m.position.sub(pivot); m.castShadow = true; grp.add(m); });
+    parent.add(grp); return grp;
+  };
+  const toWorld = (v) => v.clone().applyMatrix4(Wm);
+  let dur = 1.6;
+  const gp = P.filter((p) => p.role === "gad"), pp = P.filter((p) => p.role === "pet");
+  if (gp.length) {
+    show("gad", false);
+    const base = new THREE.Vector3().setFromMatrixPosition(gp[0].m).setY(0);
+    const top = (y) => toWorld(base.clone().setY(y));
+    if (d.g === 1) { // telescope: looks around, finds stars
+      const piv = build(gp, base);
+      sfx.sparkle();
+      tween(1.6, (k) => (piv.rotation.y = backOut(k) * Math.PI * 2));
+      [0.3, 0.8, 1.3].forEach((t) => later(t, () => burst(top(2.6), { n: 12, colors: [C.sun, "#ffffff", C.sky], speed: 2, up: 5, grav: -1, size: 0.3, life: 1.2, bounce: false })));
+    } else if (d.g === 2) { // volcano: mini eruption
+      const piv = build(gp, base);
+      sfx.rumble(); dur = 1.8;
+      tween(1.2, (k) => { const s = 1 + Math.sin(k * Math.PI * 5) * 0.12 * (1 - k); piv.scale.set(s, 2 - s, s); });
+      later(0.25, () => burst(top(1.4), { n: 45, colors: [C.coral, C.orange, C.sun], speed: 2.6, up: 9, grav: 14, size: 0.42, life: 1.5 }));
+    } else if (d.g === 3) { // rocket: lift off and land again
+      const piv = build(gp, base);
+      sfx.whoosh(); dur = 3.2;
+      tween(3, (k) => {
+        const h = k < 0.45 ? (k / 0.45) ** 2 : k < 0.55 ? 1 : (1 - (k - 0.55) / 0.45) ** 2;
+        piv.position.y = h * 32;
+        if (k < 0.45 || k > 0.7) burst(toWorld(base.clone().setY(piv.position.y + 0.3)), { n: 2, colors: [C.sun, C.orange], speed: 0.8, up: -4, grav: 3, size: 0.4, life: 0.5, spread: 0.4 });
+      }, () => { piv.position.y = 0; burst(top(0.3), { n: 20, colors: ["#e6e6e6", "#ffffff"], speed: 4, up: 1.5, grav: 3, size: 0.6, life: 0.9 }); sfx.pop(); });
+    } else if (d.g === 4) { // satellite dish: beep beep, signal rings
+      const piv = build(gp, base);
+      sfx.beep();
+      tween(1.6, (k) => (piv.rotation.y = Math.sin(k * Math.PI * 2) * 0.9));
+      [0, 0.35, 0.7].forEach((t) => later(t, () => {
+        const ring = new THREE.Mesh(new THREE.TorusGeometry(1, 0.08, 6, 32), new THREE.MeshBasicMaterial({ color: C.sky, transparent: true }));
+        ring.position.copy(top(2)); ring.rotation.x = Math.PI / 2; scene.add(ring);
+        tween(1.1, (k) => { ring.scale.setScalar(0.5 + k * 6); ring.material.opacity = 1 - k; ring.position.y = top(2).y + k * 3; }, () => scene.remove(ring));
+      }));
+    } else if (d.g === 5) { // windmill: blades whirr
+      const piv = build([gp[0]], base);
+      const hub = new THREE.Vector3().setFromMatrixPosition(gp[1].m).setY(2.7);
+      const blades = build([gp[1], gp[2]], hub);
+      sfx.whoosh(); dur = 2.2;
+      tween(2, (k) => (blades.rotation.z = (1 - (1 - k) ** 3) * Math.PI * 6));
+      [0.2, 0.7, 1.2].forEach((t) => later(t, () => burst(toWorld(hub), { n: 10, colors: ["#7bd389", "#4caf50", C.sun], speed: 5, up: 2, grav: 2, size: 0.3, life: 1.2, bounce: false })));
+      void piv;
+    }
+  }
+  if (pp.length) {
+    show("pet", false);
+    const base = new THREE.Vector3().setFromMatrixPosition(pp[0].m).setY(0);
+    const piv = build(pp, base);
+    later(0.15, () => sfx.boing());
+    tween(1.4, (k) => { piv.position.y = Math.abs(Math.sin(k * Math.PI * 3)) * 0.9; piv.rotation.y = Math.sin(k * Math.PI * 3) * 0.5; });
+    burst(toWorld(base.clone().setY(1.4)), { n: 10, colors: [C.coral, "#ff8fab"], speed: 1.5, up: 3, grav: -0.5, size: 0.32, life: 1.5, bounce: false });
+  }
+  later(dur, () => { scene.remove(wrap); show("gad", true); show("pet", true); playing.delete(i); });
+}
+
+// ---------- my house (this device) ----------
+const ME_KEY = "pst-me";
+const readMe = () => { try { return norm(localStorage.getItem(ME_KEY) || ""); } catch { return ""; } };
+let myRing = null;
+function markMyHouse() {
+  const me = readMe(), i = state.byHandle.get(me);
+  if (i === undefined) return;
+  $("homeBtn").classList.remove("hidden");
+  const lot = state.lots[i];
+  myRing = new THREE.Mesh(new THREE.TorusGeometry(3.9, 0.22, 8, 48), new THREE.MeshBasicMaterial({ color: C.sun }));
+  myRing.rotation.x = Math.PI / 2; myRing.position.set(lot.x, 0.55, lot.z); scene.add(myRing);
+  anim.push((t) => { const s = 1 + Math.sin(t * 3) * 0.05; myRing.scale.set(s, s, s); });
+}
+
+// ---------- Pip's Daily Discovery ----------
+const BOOK_KEY = "pst-book";
+const readBook = () => { try { return { found: {}, streak: 0, last: null, ...(JSON.parse(localStorage.getItem(BOOK_KEY) || "{}") || {}) }; } catch { return { found: {}, streak: 0, last: null }; } };
+const foundToday = () => readBook().last === DN;
+let treasure = null;
+function emojiSprite(e) {
+  const cv = document.createElement("canvas"); cv.width = cv.height = 128;
+  const x = cv.getContext("2d");
+  x.fillStyle = "rgba(255,255,255,0.95)"; x.beginPath(); x.arc(64, 64, 56, 0, 7); x.fill();
+  x.lineWidth = 9; x.strokeStyle = C.sun; x.stroke();
+  x.font = "68px 'Apple Color Emoji','Segoe UI Emoji','Noto Color Emoji',system-ui"; x.textAlign = "center"; x.textBaseline = "middle";
+  x.fillText(e, 64, 70);
+  const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex }));
+  sp.scale.set(2.4, 2.4, 1);
+  return sp;
+}
+const spotPos = (id) => blockCenter(...SPOTS.find((s) => s.id === id).b);
+function placeTreasure() {
+  if (foundToday()) return;
+  const [cx, cz] = TODAY.corner;
+  const p = spotPos(TODAY.spot).add(new THREE.Vector3(cx * (BW / 2 - 0.9), 1.7, cz * (BD / 2 - 0.7)));
+  treasure = emojiSprite(TODAY.item.e);
+  treasure.position.copy(p);
+  treasure.userData.treasure = true;
+  scene.add(treasure);
+  let next = 0;
+  anim.push((t) => {
+    if (!treasure) return;
+    treasure.position.y = 1.7 + Math.sin(t * 2.5) * 0.35;
+    if (t > next) { next = t + 2.2; burst(treasure.position.clone().add(new THREE.Vector3(0, 0.8, 0)), { n: 6, colors: [C.sun, "#ffffff"], speed: 1.2, up: 3, grav: 1, size: 0.22, life: 1, bounce: false }); }
+  });
+}
+function collectTreasure() {
+  if (!treasure) return;
+  const b = readBook();
+  if (b.last !== DN) { b.streak = b.last === DN - 1 ? (b.streak || 0) + 1 : 1; b.last = DN; }
+  b.found[TODAY.item.id] = b.found[TODAY.item.id] || TODAY.day;
+  try { localStorage.setItem(BOOK_KEY, JSON.stringify(b)); } catch {}
+  burst(treasure.position.clone(), { n: 60, colors: [C.sun, C.coral, C.teal, C.grape, C.sky], speed: 6, up: 8, grav: 10, size: 0.4, life: 1.6 });
+  scene.remove(treasure); treasure = null;
+  sfx.fanfare(); confetti();
+  updateDot();
+  const n = Object.keys(b.found).length;
+  const el = document.createElement("div");
+  el.className = "found";
+  el.innerHTML = `<div class="bigemoji">${TODAY.item.e}</div>
+    <h2>You found the ${TODAY.item.n}!</h2>
+    <p class="fact">${TODAY.item.f}</p>
+    <p class="stats"><b>${n}</b> / ${ITEMS.length} in your Discovery Book${b.streak > 1 ? ` · 🔥 <b>${b.streak}</b> days in a row` : ""}</p>
+    <button class="big" id="openBook">📖 Open my Discovery Book</button>
+    <p class="tiny">A new discovery hides in town every day. Come back tomorrow! Grown-ups: ask your kid what they found 💛</p>`;
+  openModal(el);
+  el.querySelector("#openBook").onclick = openBook;
+}
+function openBook() {
+  const b = readBook(), n = Object.keys(b.found).length;
+  const el = document.createElement("div");
+  el.innerHTML = `<h2>📖 My Discovery Book</h2>
+    <p class="stats"><b>${n}</b> / ${ITEMS.length} found${b.streak > 0 && b.last >= DN - 1 ? ` · 🔥 <b>${b.streak}</b> ${b.streak === 1 ? "day" : "days in a row"}` : ""}</p>
+    <div class="book">${ITEMS.map((it) => b.found[it.id]
+      ? `<button class="item got" data-id="${it.id}"><span>${it.e}</span><small>${it.n}</small></button>`
+      : `<div class="item"><span class="q">?</span><small>Not found yet</small></div>`).join("")}</div>
+    <p class="fact" id="bookFact">${n ? "Tap a discovery to read its fact." : "Nothing yet! Something new hides in town every day. Tap 🔎 for today's hint."}</p>
+    <p class="tiny">Saved only on this device. No sign-up.</p>`;
+  openModal(el);
+  el.addEventListener("click", (e) => { const it = ITEMS.find((x) => x.id === e.target.closest("[data-id]")?.dataset.id); if (it) { el.querySelector("#bookFact").innerHTML = `<b>${it.e} ${it.n}:</b> ${it.f}`; sfx.pop(); } });
+}
+function openHint() {
+  const el = document.createElement("div");
+  if (foundToday()) {
+    el.innerHTML = `<h2>🔎 Today's discovery</h2><p>You already found today's <b>${TODAY.item.n}</b> ${TODAY.item.e}! A new one hides in town tomorrow.</p><button class="big" id="openBook">📖 My Discovery Book</button>`;
+    openModal(el); el.querySelector("#openBook").onclick = openBook; return;
+  }
+  el.innerHTML = `<h2>🔎 Today's discovery</h2>
+    <p>Pip hid something in town today… ✨</p>
+    <p class="fact">It's near the <b>${TODAY.near}</b>! Zoom in and look for a sparkle, then tap it.</p>
+    <button class="big" id="flyHint">🚁 Fly me close</button>`;
+  openModal(el);
+  el.querySelector("#flyHint").onclick = () => { closeModal(); marker.visible = false; flyTo(spotPos(TODAY.spot), 62); };
+}
+function updateDot() { $("hintBtn").querySelector(".dot").classList.toggle("hidden", foundToday()); }
+
 // ---------- UI ----------
 const $ = (id) => document.getElementById(id);
 const toastEl = $("toast");
@@ -519,20 +949,25 @@ $("collapse").onclick = () => { const c = $("card"); c.classList.toggle("collaps
 
 function info(html) { $("info").innerHTML = `<button class="icon" aria-label="Close">✕</button>${html}`; $("info").classList.remove("hidden"); document.body.classList.add("info-open"); $("info").querySelector(".icon").onclick = () => { $("info").classList.add("hidden"); document.body.classList.remove("info-open"); marker.visible = false; }; }
 
-function showHouse(i) {
+function showHouse(i, { fly = true, playIt = true } = {}) {
   const h = state.houses[i], d = designFor(h), lot = state.lots[i];
   showLabel(i, true);
   marker.position.set(lot.x, 10, lot.z); marker.visible = true;
-  flyTo(new THREE.Vector3(lot.x, 0, lot.z));
+  if (fly) flyTo(new THREE.Vector3(lot.x, 0, lot.z));
   const g = GADGETS[d.g], p = PETS[d.p];
   const welcome = h.pending && new URLSearchParams(location.search).get("new") === "1";
-  if (welcome) confetti();
+  const mine = norm(h.h) === readMe();
+  if (welcome) { confetti(); sfx.fanfare(); growHouse(i, fly ? 1.2 : 0.2); }
+  else if (playIt) later(fly ? 1.3 : 0, () => playHouse(i));
+  const ex = TODAY.experiment;
   info(`${welcome ? "<h3>🎉 Welcome to Pip's Science Town!</h3>" : ""}<h3>🏡 @${h.h}</h3>
     <p><b>House #${(i + 1).toLocaleString()}</b> on <b>${streetOf(lot)}</b></p>
     ${h.pending ? `<p><span class="tag">⚒️ moving in</span> Builders are finishing it. It shows up for everyone within a day.</p>` : `<p>Moved in: ${h.t || "recently"}</p>`}
     <p>Science gadget: ${g.n} ${g.e !== "–" ? g.e : ""}${d.p ? `<br>Pet: ${p.n} ${p.e}` : ""}</p>
-    <div class="row"><button class="soft" id="storyHouse">📲 Share my house</button><button class="soft" id="shareHouse">🔗 Copy link</button></div>
+    ${mine || welcome ? `<div class="lab"><b>🧪 Today in my lab: ${ex.e} ${ex.n}</b><p>${ex.s}</p></div>` : ""}
+    <div class="row"><button class="soft" id="playHouse">👆 Play!</button><button class="soft" id="storyHouse">📲 Share</button><button class="soft" id="shareHouse">🔗 Link</button></div>
     <p class="tiny">Tip: add the link to your Instagram story with the 🔗 Link sticker so friends can visit!</p>`);
+  $("playHouse").onclick = () => playHouse(i);
   const link = `${location.origin}${location.pathname}?find=${encodeURIComponent(h.h)}`;
   $("shareHouse").onclick = () => copy(link, "Link copied! Add it to your story with the Link sticker 💛");
   $("storyHouse").onclick = async () => {
@@ -541,20 +976,26 @@ function showHouse(i) {
   };
   history.replaceState(null, "", `?find=${encodeURIComponent(h.h)}`);
 }
-function showSpot(s) {
+function showSpot(s, { fly = true, playIt = false } = {}) {
   const n = state.houses.length, open = n >= s.at;
   const grp = state.spotGroups[SPOTS.indexOf(s)];
-  flyTo(grp.position.clone(), 55);
+  if (fly) flyTo(grp.position.clone(), 62);
   marker.visible = false;
+  const play = () => spotPlay.get(s.id)?.();
+  if (playIt) later(fly ? 1.3 : 0, play);
+  const verb = { pip: "🤖 Make Pip jump", volcano: "🌋 Erupt!", aquarium: "🐠 Splash!", weather: "🌦️ Make it rain", planetarium: "🌌 Star show", dino: "🦖 Roar!", rocket: "🚀 Launch!" }[s.id];
+  const f = TODAY.fact;
   info(`<h3>${s.e} ${s.name}</h3>
     <p>${open ? '<span class="tag open">Open!</span>' : `<span class="tag">Opens at ${s.at} families · ${s.at - n} to go</span>`}</p>
-    ${open ? `<p><b>Try this at home:</b> ${s.act}</p>` : `<p>Every family that moves in brings this closer. Share the town with a friend! 💛</p>`}`);
+    ${s.id === "pip" ? `<p><b>Pip's fact of the day:</b> ${f.e} ${f.f}</p>` : open ? `<p><b>Try this at home:</b> ${s.act}</p>` : `<p>The builders are working! Every family that moves in brings this closer. Share the town with a friend! 💛</p>`}
+    <button class="soft wide" id="playSpot">${open ? verb : "🔨 Watch the builders"}</button>`);
+  $("playSpot").onclick = play;
 }
 $("buildingsBtn").onclick = () => {
   const n = state.houses.length;
   const ul = document.createElement("div");
   ul.innerHTML = `<h2>🔬 Science spots</h2><p class="tiny">New buildings open as more families move in. Each one has a free activity to try at home.</p><ul class="spots">${SPOTS.map((s, i) => `<li><span class="em">${s.e}</span><span class="t"><b>${s.name}</b><span>${n >= s.at ? "Open! Tap to visit" : `Opens at ${s.at} families`}</span></span><button data-spot="${i}">Visit</button></li>`).join("")}</ul>`;
-  ul.addEventListener("click", (e) => { const b = e.target.closest("[data-spot]"); if (b) { closeModal(); showSpot(SPOTS[+b.dataset.spot]); } });
+  ul.addEventListener("click", (e) => { const b = e.target.closest("[data-spot]"); if (b) { closeModal(); showSpot(SPOTS[+b.dataset.spot], { playIt: true }); } });
   openModal(ul);
 };
 
@@ -667,6 +1108,7 @@ function openClaim() {
   setTimeout(() => el.querySelector("#claimInput").focus(), 50);
 }
 function claimAs(h) {
+  try { localStorage.setItem(ME_KEY, h); } catch {}
   if (!state.byHandle.has(h)) {
     let d = "";
     try { d = localStorage.getItem("pst-design") || ""; } catch {}
@@ -692,17 +1134,24 @@ function confetti() {
 // ---------- picking ----------
 const ray = new THREE.Raycaster(), ptr = new THREE.Vector2();
 let down = null;
+addEventListener("pointerdown", () => sfx.unlock(), { once: true });
 renderer.domElement.addEventListener("pointerdown", (e) => (down = [e.clientX, e.clientY]));
+const isNear = (p, d = 95) => camera.position.distanceTo(p) < d;
 renderer.domElement.addEventListener("pointerup", (e) => {
-  if (!down || Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 6) return;
+  if (!down || Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 8) return;
   ptr.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
   ray.setFromCamera(ptr, camera);
-  const targets = [...state.meshes.filter((m) => m.userData.kind === "wall" || m.userData.kind === "roof"), ...state.spotGroups];
+  const targets = [...state.meshes.filter((m) => m.userData.kind === "wall" || m.userData.kind === "roof" || m.userData.kind === "win"), ...state.spotGroups];
+  if (treasure) targets.unshift(treasure);
   const hit = ray.intersectObjects(targets, true)[0];
   if (!hit) return;
-  if (hit.object.userData.spot) return showSpot(hit.object.userData.spot);
+  if (hit.object.userData.treasure) return collectTreasure();
+  if (hit.object.userData.spot) {
+    const s = hit.object.userData.spot, near = isNear(state.spotGroups[SPOTS.indexOf(s)].position, 110);
+    return showSpot(s, { fly: !near, playIt: true });
+  }
   const tag = hit.object.userData.tags?.[hit.instanceId];
-  if (tag !== undefined) showHouse(tag);
+  if (tag !== undefined) { const l = state.lots[tag]; showHouse(tag, { fly: !isNear(new THREE.Vector3(l.x, 0, l.z), 75) }); }
 });
 
 // ---------- loop ----------
@@ -711,6 +1160,7 @@ const clock = new THREE.Clock();
 const ease = (k) => (k < 0.5 ? 2 * k * k : 1 - (-2 * k + 2) ** 2 / 2);
 renderer.setAnimationLoop(() => {
   const dt = Math.min(clock.getDelta(), 0.1), t = clock.elapsedTime;
+  NOW = t;
   if (fly) {
     const k = Math.min(1, (performance.now() - fly.t0) / fly.dur), e = ease(k);
     camera.position.lerpVectors(fly.from.p, fly.to.p, e);
@@ -719,8 +1169,22 @@ renderer.setAnimationLoop(() => {
   }
   for (const f of anim) f(t, dt);
   controls.update();
+  const sk = NOW - shakeT0 < shakeDur ? shakeAmp * (1 - (NOW - shakeT0) / shakeDur) : 0;
+  const off = new THREE.Vector3((Math.random() - 0.5) * sk, (Math.random() - 0.5) * sk, (Math.random() - 0.5) * sk);
+  camera.position.add(off);
   renderer.render(scene, camera);
+  camera.position.sub(off);
 });
+
+// ---------- toolbar ----------
+$("hintBtn").onclick = () => { sfx.pop(); openHint(); };
+$("bookBtn").onclick = () => { sfx.pop(); openBook(); };
+$("homeBtn").onclick = () => { const i = state.byHandle.get(readMe()); if (i !== undefined) showHouse(i); };
+const setNightIcon = () => ($("nightBtn").textContent = nightOn ? "☀️" : "🌙");
+$("nightBtn").onclick = () => { nightOn = !nightOn; try { localStorage.setItem("pst-night", nightOn ? "1" : "0"); } catch {} setNightIcon(); sfx.sparkle(); };
+const setSoundIcon = () => ($("soundBtn").textContent = sfx.on ? "🔊" : "🔇");
+$("soundBtn").onclick = () => { sfx.toggle(); setSoundIcon(); };
+setNightIcon(); setSoundIcon();
 
 // ---------- boot ----------
 (async () => {
@@ -749,19 +1213,35 @@ renderer.setAnimationLoop(() => {
   updateGoal();
   const l = $("loading"); l.style.opacity = 0; setTimeout(() => l.remove(), 500);
   if (film) {
+    l.remove();
     document.body.classList.add("film");
     renderer.setAnimationLoop(null);
     if (qs.get("you")) showLabel(0, true);
     window.__state = state;
     window.__film = (t, pos, tgt) => {
+      NOW = t;
       camera.position.set(...pos); controls.target.set(...tgt); camera.lookAt(controls.target);
       for (const f of anim) f(t, 1 / 30);
       state.labels.forEach((s) => { s.visible = s.userData.big || camera.position.distanceTo(s.position) < 85; });
       renderer.render(scene, camera);
       return true;
     };
+    // for Town Story Reels: trigger effects at a film time, e.g. __play("volcano"), __playHouse(0), __grow(0), __night(true)
+    window.__play = (id) => spotPlay.get(id)?.();
+    window.__playHouse = (i) => playHouse(i);
+    window.__grow = (i) => growHouse(i, 0);
+    window.__night = (v) => { nightOn = !!v; nf = v ? 1 : 0; applyNight(); };
     window.__filmReady = true;
     return;
+  }
+  placeTreasure(); markMyHouse(); updateDot();
+  // families who moved in today pop up out of the ground
+  houses.forEach((h, i) => { if (h.t === TODAY.day && !h.pending) growHouse(i, 0.8 + Math.min(i, 30) * 0.12); });
+  if (!qs.get("find") && !qs.get("claim")) {
+    let seenTip = false;
+    try { seenTip = localStorage.getItem("pst-tip") === "1"; localStorage.setItem("pst-tip", "1"); } catch {}
+    if (!seenTip) setTimeout(() => toast("👆 Tap the buildings and houses. They do things!", 4500), 1500);
+    if (!foundToday()) setTimeout(() => toast("✨ Pip hid something in town today… Tap 🔎 for a hint!", 5000), seenTip ? 1800 : 6500);
   }
   if (qs.get("find")) setTimeout(() => find(qs.get("find")), 600);
   else if (qs.get("claim")) {

@@ -32,7 +32,7 @@ button { font: inherit; cursor: pointer; color: inherit; }
 #card.collapsed .body { display: none; }
 .icon { width: 34px; height: 34px; border-radius: 50%; border: 3px solid var(--ink); background: #fff; font-weight: 700; line-height: 1; flex: none; }
 .count { margin: 12px 0 6px; font-size: 17px; }
-.count b { font-size: 26px; color: var(--coral); }
+.count b { font-size: 26px; color: #c2333c; }
 .goalText { font-size: 14px; margin-bottom: 5px; }
 .bar { height: 14px; border: 3px solid var(--ink); border-radius: 99px; background: #fff; overflow: hidden; }
 .bar i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--teal), var(--sky)); transition: width 1s; }
@@ -92,7 +92,35 @@ button { font: inherit; cursor: pointer; color: inherit; }
   #info { right: 10px; left: 10px; width: auto; bottom: 10px; }
 }
 
-body.film #card, body.film #ctaMobile, body.film #toast, body.film #info { display: none !important; }
+#tools { position: fixed; top: 14px; right: 14px; display: flex; flex-direction: column; gap: 8px; z-index: 9; }
+.tool { position: relative; width: 50px; height: 50px; padding: 0; font-size: 23px; line-height: 1; background: var(--panel); border: 3px solid var(--ink); border-radius: 16px; box-shadow: 0 4px 0 rgba(43, 45, 66, 0.3); }
+.tool:active { transform: translateY(3px); box-shadow: 0 1px 0 rgba(43, 45, 66, 0.3); }
+.tool .dot { position: absolute; top: -5px; right: -5px; width: 15px; height: 15px; border-radius: 50%; background: var(--coral); border: 2px solid var(--ink); animation: pulse 1.4s ease-in-out infinite; }
+@keyframes pulse { 50% { transform: scale(1.3); } }
+#info .lab { margin: 8px 0; padding: 8px 10px; background: #fff; border: 3px dashed var(--teal); border-radius: 14px; font-size: 14.5px; }
+#info .lab p { margin: 4px 0 0; font-size: 14px; }
+.soft.wide { width: 100%; margin-top: 6px; padding: 10px; font-size: 16px; background: var(--sun); }
+.found { text-align: center; }
+.found .bigemoji { font-size: 76px; line-height: 1; margin: 4px 0 6px; animation: popin 0.6s cubic-bezier(.3,1.6,.5,1) both; }
+@keyframes popin { from { transform: scale(0) rotate(-30deg); } }
+.found h2 { margin-right: 0 !important; }
+.fact { font-size: 16px; background: #fff; border: 3px solid var(--ink); border-radius: 14px; padding: 10px 12px; }
+.stats { font-size: 16px; margin: 8px 0; }
+.stats b { color: #c2333c; font-size: 20px; }
+.book { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 10px 0; }
+.book .item { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 2px; min-height: 76px; background: #f1ece2; border: 3px dashed rgba(43, 45, 66, 0.3); border-radius: 14px; font: inherit; }
+.book .item span { font-size: 28px; filter: grayscale(1); opacity: 0.5; }
+.book .item small { font-size: 11px; line-height: 1.1; text-align: center; color: #5c5f73; }
+.book .item span.q { filter: none; opacity: 1; font-weight: 700; color: #a9a49a; }
+.book .item.got { background: #fff; border: 3px solid var(--ink); }
+.book .item.got span { filter: none; opacity: 1; }
+.book .item.got small { color: var(--ink); font-weight: 600; }
+@media (max-width: 600px) {
+  #tools { top: 84px; right: 10px; gap: 6px; }
+  .tool { width: 44px; height: 44px; font-size: 20px; border-radius: 14px; }
+  .book { grid-template-columns: repeat(3, 1fr); }
+}
+body.film #card, body.film #ctaMobile, body.film #toast, body.film #info, body.film #tools { display: none !important; }
 .confetti { position: fixed; top: -12px; width: 10px; height: 16px; border-radius: 3px; z-index: 40; pointer-events: none; animation: fall linear forwards; }
 @keyframes fall { to { top: 105vh; transform: translateX(40px) rotate(720deg); } }
 #info .row { margin-top: 8px; }
