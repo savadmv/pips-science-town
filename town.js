@@ -428,12 +428,12 @@ const music = (() => {
   return { get on() { return on; }, start, stop, toggle() { on = !on; try { localStorage.setItem("pst-music", on ? "on" : "off"); } catch {} on ? start() : stop(); return on; } };
 })();
 /** For the Reel soundtrack: render the same music offline to a WAV (base64). */
-async function musicWav(seconds, nightAt = 1e9) {
+async function musicWav(seconds, nightAt = 1e9, nightUntil = 1e9) {
   const sr = 44100, ac = new OfflineAudioContext(2, Math.ceil(sr * seconds), sr);
   const vol = ac.createGain(); vol.gain.value = 0.9; vol.connect(ac.destination);
   const inp = musicChain(ac, vol);
   let t = 0.05, bar = 0;
-  while (t < seconds) { const night = t >= nightAt; musicBar(ac, inp, t, bar++, night); t += barLen(night); }
+  while (t < seconds) { const night = t >= nightAt && t < nightUntil; musicBar(ac, inp, t, bar++, night); t += barLen(night); }
   const buf = await ac.startRendering();
   const L = buf.getChannelData(0), Rr = buf.getChannelData(1), n = L.length, dv = new DataView(new ArrayBuffer(44 + n * 4));
   const w = (o, str) => [...str].forEach((c, i) => dv.setUint8(o + i, c.charCodeAt(0)));
@@ -1043,7 +1043,7 @@ function showHouse(i, { fly = true, playIt = true } = {}) {
   const ex = TODAY.experiment;
   info(`${welcome ? "<h3>🎉 Welcome to Pip's Science Town!</h3>" : ""}<h3>🏡 @${h.h}</h3>
     <p><b>House #${(i + 1).toLocaleString()}</b> on <b>${streetOf(lot)}</b></p>
-    ${h.pending ? `<p><span class="tag">⚒️ moving in</span> Builders are finishing it. It shows up for everyone within a day.</p>` : `<p>Moved in: ${h.t || "recently"}</p>`}
+    ${h.pending ? `<p><span class="tag">⚒️ moving in</span> Builders are finishing it. Everyone else will see it within about 2 hours.</p>` : `<p>Moved in: ${h.t || "recently"}</p>`}
     <p>Science gadget: ${g.n} ${g.e !== "–" ? g.e : ""}${d.p ? `<br>Pet: ${p.n} ${p.e}` : ""}</p>
     ${mine || welcome ? `<div class="lab"><b>🧪 Today in my lab: ${ex.e} ${ex.n}</b><p>${ex.s}</p></div>` : ""}
     <div class="row"><button class="soft" id="playHouse">👆 Play!</button><button class="soft" id="storyHouse">📲 Share</button><button class="soft" id="shareHouse">🔗 Link</button></div>
@@ -1483,7 +1483,7 @@ setNightIcon(); setSoundIcon();
     };
     window.__treasure = (x, z, e) => { treasure = emojiSprite(e); treasure.position.set(x, 1.7, z); scene.add(treasure); anim.push((t) => { if (treasure) treasure.position.y = 1.7 + Math.sin(t * 2.5) * 0.35; }); };
     window.__collect = () => { if (!treasure) return; burst(treasure.position.clone(), { n: 60, colors: [C.sun, C.coral, C.teal, C.grape, C.sky], speed: 6, up: 8, grav: 10, size: 0.4, life: 1.6 }); scene.remove(treasure); treasure = null; };
-    window.__night = (v) => { nightOn = !!v; nf = v ? 1 : 0; applyNight(); };
+    window.__night = (v, instant = false) => { nightOn = !!v; if (instant) { nf = v ? 1 : 0; applyNight(); } };
     window.__filmReady = true;
     return;
   }
