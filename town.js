@@ -1215,24 +1215,29 @@ function confetti() {
 // ---------- Pip mode: a little jetpack Pip you steer with one finger ----------
 let pipMode = true;
 try { pipMode = localStorage.getItem("pst-view") !== "map"; } catch {}
-const bot = new THREE.Group();
-const botBody = new THREE.Group(); bot.add(botBody);
-botBody.add(mesh("box", C.teal, [0, 0.5, 0], [1.3, 1.4, 1.0]));
-botBody.add(mesh("box", C.white, [0, 1.9, 0], [1.8, 1.35, 1.35]));
-botBody.add(mesh("ball", C.ink, [-0.38, 2.6, 0.68], [0.34, 0.34, 0.16]));
-botBody.add(mesh("ball", C.ink, [0.38, 2.6, 0.68], [0.34, 0.34, 0.16]));
-botBody.add(mesh("box", C.coral, [0, 2.2, 0.69], [0.5, 0.1, 0.05]));
-botBody.add(mesh("cyl", C.ink, [0, 3.2, 0], [0.08, 0.55, 0.08]));
-const botLight = mesh("ball", C.coral, [0, 3.85, 0], [0.38, 0.38, 0.38], [0, 0, 0], { emissive: C.coral, emissiveIntensity: 0.6 });
-botBody.add(botLight);
-botBody.add(mesh("cyl", C.orange, [-0.35, 0.3, -0.65], [0.38, 1.1, 0.38]));
-botBody.add(mesh("cyl", C.orange, [0.35, 0.3, -0.65], [0.38, 1.1, 0.38]));
-const botArmL = mesh("box", C.teal, [-0.85, 0.5, 0], [0.28, 0.9, 0.28], [0, 0, 0.4]);
-const botArmR = mesh("box", C.teal, [0.85, 0.5, 0], [0.28, 0.9, 0.28], [0, 0, -0.4]);
-botBody.add(botArmL, botArmR);
-const botShadow = new THREE.Mesh(new THREE.CircleGeometry(1.1, 24), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.22, depthWrite: false }));
-botShadow.rotation.x = -Math.PI / 2;
-bot.scale.setScalar(1.25);
+/** A little Pip robot: yours, or another visitor's (in their house colour). */
+function makeBot(col = C.teal) {
+  const g = new THREE.Group(), body = new THREE.Group(); g.add(body);
+  body.add(mesh("box", col, [0, 0.5, 0], [1.3, 1.4, 1.0]));
+  body.add(mesh("box", C.white, [0, 1.9, 0], [1.8, 1.35, 1.35]));
+  body.add(mesh("ball", C.ink, [-0.38, 2.6, 0.68], [0.34, 0.34, 0.16]));
+  body.add(mesh("ball", C.ink, [0.38, 2.6, 0.68], [0.34, 0.34, 0.16]));
+  body.add(mesh("box", C.coral, [0, 2.2, 0.69], [0.5, 0.1, 0.05]));
+  body.add(mesh("cyl", C.ink, [0, 3.2, 0], [0.08, 0.55, 0.08]));
+  const light = mesh("ball", C.coral, [0, 3.85, 0], [0.38, 0.38, 0.38], [0, 0, 0], { emissive: C.coral, emissiveIntensity: 0.6 });
+  body.add(light);
+  body.add(mesh("cyl", C.orange, [-0.35, 0.3, -0.65], [0.38, 1.1, 0.38]));
+  body.add(mesh("cyl", C.orange, [0.35, 0.3, -0.65], [0.38, 1.1, 0.38]));
+  const armL = mesh("box", col, [-0.85, 0.5, 0], [0.28, 0.9, 0.28], [0, 0, 0.4]);
+  const armR = mesh("box", col, [0.85, 0.5, 0], [0.28, 0.9, 0.28], [0, 0, -0.4]);
+  body.add(armL, armR);
+  const shadow = new THREE.Mesh(new THREE.CircleGeometry(1.1, 24), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.22, depthWrite: false }));
+  shadow.rotation.x = -Math.PI / 2;
+  g.scale.setScalar(1.25);
+  return { g, body, light, armL, armR, shadow };
+}
+const B0 = makeBot();
+const bot = B0.g, botBody = B0.body, botLight = B0.light, botArmL = B0.armL, botArmR = B0.armR, botShadow = B0.shadow;
 bot.visible = false;
 scene.add(bot, botShadow);
 
@@ -1253,6 +1258,7 @@ function pipGo(target, stand) {
   const dur = Math.min(3.2, Math.max(0.5, 0.35 + d / 26));
   pip.move = { from: pip.pos.clone(), to, t0: NOW, dur, h: d < 7 ? 0.8 : Math.min(16, 5 + d * 0.12) };
   if (d > 7) sfx.whoosh(); else sfx.pop();
+  mpPublish();
   return dur;
 }
 function pipFace(dx, dz, dt) {
@@ -1280,6 +1286,7 @@ anim.push((t, dt) => {
     pip.pos.x += (-Math.sin(pip.yaw) * f + Math.cos(pip.yaw) * r) * sp;
     pip.pos.z += (-Math.cos(pip.yaw) * f - Math.sin(pip.yaw) * r) * sp;
   }
+  if (pip.keys.size && performance.now() - mp.lastPub > 600) mpPublish();
   const lim = state.extent + 30;
   pip.pos.x = Math.max(-lim, Math.min(lim, pip.pos.x)); pip.pos.z = Math.max(-lim, Math.min(lim, pip.pos.z));
   const dx = pip.pos.x - before.x, dz = pip.pos.z - before.z;
@@ -1330,6 +1337,136 @@ function setView(v) {
   else { controls.target.copy(pip.pos).setY(0); }
   $("viewBtn").textContent = v ? "🗺️" : "🤖";
   $("viewBtn").setAttribute("aria-label", v ? "Switch to map view" : "Switch to Pip view");
+}
+
+// ---------- live visitors: see other families' Pips flying around (Firebase Realtime Database) ----------
+// Kid-safe by design: no chat or free text at all. Each visitor is one tiny record (name = their family's
+// public @ or "Visitor", colour, last flight, emoji from a fixed list). It is deleted when they leave.
+// Paste the web-app config from the Firebase console here (it is public by design; security comes from the rules).
+const FIREBASE = {
+  apiKey: "AIzaSyCzCD77MK4YT-RHNTI_MX-X1MLl6eu-9Xk",
+  authDomain: "pips-science-town.firebaseapp.com",
+  databaseURL: "https://pips-science-town-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "pips-science-town",
+  appId: "1:640069705994:web:07c35e84ff50f87ab9daf3",
+}; // Firebase project "pips-science-town" (Spark, free). Web config is public by design; security is in town/firebase-rules.json
+const EMOJI = ["👋", "❤️", "🎉", "😂", "🤩", "🚀"];
+const MP_MAX = 40;
+const mp = { on: false, local: false, send: null, others: new Map(), offset: 0, lastPub: 0, emo: "", emoT: 0 };
+const okName = (n) => (typeof n === "string" && (n === "Visitor" || /^@[a-z0-9._]{1,30}$/.test(n)) ? n : "Visitor");
+const okCol = (c) => (typeof c === "string" && /^#[0-9a-fA-F]{6}$/.test(c) ? c : C.teal);
+const num = (v, lo = -2000, hi = 2000) => (typeof v === "number" && isFinite(v) ? Math.max(lo, Math.min(hi, v)) : 0);
+function myName() {
+  const h = readMe(), i = state.byHandle.get(h);
+  return h && i !== undefined && !state.houses[i].pending ? "@" + h : "Visitor"; // only official families show their @
+}
+function myCol() { const i = state.byHandle.get(readMe()); return i !== undefined ? ROOFS[designFor(state.houses[i]).r] : C.teal; }
+function mpPublish() {
+  if (!mp.on) return;
+  const m = pip.move, now = Date.now() + mp.offset, r = (v) => Math.round(v * 10) / 10;
+  mp.send({
+    n: myName(), c: myCol(),
+    x: r(m ? m.from.x : pip.pos.x), z: r(m ? m.from.z : pip.pos.z), tx: r(m ? m.to.x : pip.pos.x), tz: r(m ? m.to.z : pip.pos.z),
+    t0: Math.round(m ? now - (NOW - m.t0) * 1000 : now), d: m ? Math.round(m.dur * 100) / 100 : 0, h: m ? Math.round(m.h * 10) / 10 : 0,
+    e: mp.emo, et: mp.emoT, ts: now,
+  });
+  mp.lastPub = performance.now();
+}
+/** An emoji bubble that floats up above a robot. */
+function emoteOn(group, e) {
+  if (!EMOJI.includes(e)) return;
+  const sp = emojiSprite(e); sp.scale.set(1.6, 1.6, 1); sp.position.set(0, 5.4, 0); group.add(sp);
+  tween(2.4, (k) => { sp.position.y = 5.4 + k * 2.2; sp.material.opacity = k > 0.7 ? (1 - k) / 0.3 : 1; sp.material.transparent = true; sp.scale.setScalar(1.6 * (k < 0.15 ? backOut(k / 0.15) : 1)); }, () => group.remove(sp));
+}
+function upsertOther(id, s) {
+  if (!s || typeof s !== "object") return removeOther(id);
+  let o = mp.others.get(id);
+  const name = okName(s.n);
+  if (!o) {
+    if (mp.others.size >= MP_MAX) return;
+    const b = makeBot(okCol(s.c));
+    const lb = label(name === "Visitor" ? "👋 Visitor" : name, { bg: C.white, size: 0.55 });
+    lb.position.set(0, 4.5, 0); b.g.add(lb);
+    scene.add(b.g, b.shadow);
+    o = { b, lb, name, s: null, seen: NOW, pos: new THREE.Vector3(num(s.tx ?? s.x), 0.45, num(s.tz ?? s.z)) };
+    mp.others.set(id, o);
+    updateOnline();
+  } else if (name !== o.name) {
+    o.b.g.remove(o.lb); o.lb = label(name === "Visitor" ? "👋 Visitor" : name, { bg: C.white, size: 0.55 }); o.lb.position.set(0, 4.5, 0); o.b.g.add(o.lb); o.name = name;
+  }
+  if (s.e && s.et && s.et !== o.s?.et && Date.now() + mp.offset - s.et < 5000) emoteOn(o.b.g, s.e);
+  o.s = s; o.seen = NOW;
+}
+function removeOther(id) {
+  const o = mp.others.get(id); if (!o) return;
+  scene.remove(o.b.g, o.b.shadow); mp.others.delete(id); updateOnline();
+}
+function updateOnline() {
+  const n = mp.others.size, el = $("online");
+  if (!el) return;
+  el.classList.toggle("hidden", n === 0);
+  el.textContent = n === 1 ? "👀 1 more visitor flying here now" : `👀 ${n} more visitors flying here now`;
+}
+anim.push((t, dt) => {
+  if (!mp.others.size) return;
+  const now = Date.now() + mp.offset, tgt = new THREE.Vector3();
+  for (const [id, o] of mp.others) {
+    if (mp.local && NOW - o.seen > 45) { removeOther(id); continue; }
+    const s = o.s, d = num(s.d, 0, 10), h = num(s.h, 0, 30);
+    const k = d > 0 ? Math.min(1, Math.max(0, (now - num(s.t0, 0, 1e15)) / (d * 1000))) : 1;
+    tgt.set(num(s.x), 0, num(s.z)).lerp(new THREE.Vector3(num(s.tx), 0, num(s.tz)), ease(k));
+    tgt.y = 0.45 + Math.sin(k * Math.PI) * h;
+    const before = o.pos.clone();
+    o.pos.lerp(tgt, 1 - Math.exp(-dt * 12));
+    const dx = o.pos.x - before.x, dz = o.pos.z - before.z, moving = Math.hypot(dx, dz) > 0.003, flying = h > 1 && k < 1;
+    if (moving) { let a = Math.atan2(dx, dz) - o.b.g.rotation.y; a = Math.atan2(Math.sin(a), Math.cos(a)); o.b.g.rotation.y += a * Math.min(1, dt * 10); }
+    o.b.g.position.copy(o.pos);
+    o.b.body.position.y = Math.sin(t * 3 + o.pos.x) * 0.12 + (moving && !flying ? Math.abs(Math.sin(t * 14)) * 0.25 : 0);
+    o.b.body.rotation.x = flying ? 0.25 : 0;
+    o.b.armL.rotation.z = flying ? 1.2 : 0.4 + Math.sin(t * 2 + o.pos.z) * 0.15; o.b.armR.rotation.z = -o.b.armL.rotation.z;
+    o.b.light.material.emissiveIntensity = 0.5 + 0.5 * Math.sin(t * 5 + o.pos.x) + nf;
+    if (flying && Math.random() < 0.5) burst(o.pos.clone().add(new THREE.Vector3(0, 0.3, 0)), { n: 1, colors: [C.sun, C.orange], speed: 0.5, up: -3, grav: 2, size: 0.35, life: 0.35, spread: 0.3, bounce: false });
+    o.b.shadow.position.set(o.pos.x, 0.47, o.pos.z); o.b.shadow.scale.setScalar(1.25 / (1 + (o.pos.y - 0.45) * 0.08));
+  }
+});
+async function mpConnect() {
+  const qs = new URLSearchParams(location.search);
+  try {
+    if (FIREBASE) {
+      const V = "10.12.2", base = `https://www.gstatic.com/firebasejs/${V}`;
+      const [fa, fauth, fdb] = await Promise.all([import(`${base}/firebase-app.js`), import(`${base}/firebase-auth.js`), import(`${base}/firebase-database.js`)]);
+      const app = fa.initializeApp(FIREBASE);
+      const uid = (await fauth.signInAnonymously(fauth.getAuth(app))).user.uid; // anonymous: nobody can move anyone else's robot
+      const db = fdb.getDatabase(app);
+      fdb.onValue(fdb.ref(db, ".info/serverTimeOffset"), (snap) => (mp.offset = snap.val() || 0));
+      const players = fdb.ref(db, "town/v1/players"), mine = fdb.child(players, uid);
+      await fdb.onDisconnect(mine).remove();
+      mp.send = (s) => fdb.set(mine, s).catch(() => {});
+      fdb.onChildAdded(players, (snap) => snap.key !== uid && upsertOther(snap.key, snap.val()));
+      fdb.onChildChanged(players, (snap) => snap.key !== uid && upsertOther(snap.key, snap.val()));
+      fdb.onChildRemoved(players, (snap) => removeOther(snap.key));
+      addEventListener("pagehide", () => fdb.remove(mine));
+      mp.on = true;
+    } else if (qs.has("mptest") && "BroadcastChannel" in window) {
+      // local test: open the town in two tabs with ?mptest and fly around
+      const bc = new BroadcastChannel("pst-town"), id = Math.random().toString(36).slice(2, 10);
+      bc.onmessage = (e) => { const m = e.data; if (!m || m.id === id) return; if (m.bye) removeOther(m.id); else upsertOther(m.id, m.s); };
+      mp.send = (s) => bc.postMessage({ id, s });
+      addEventListener("pagehide", () => bc.postMessage({ id, bye: true }));
+      mp.on = mp.local = true;
+    }
+  } catch (e) { console.warn("live visitors are off:", e); }
+  if (!mp.on) return;
+  $("emoBtn").classList.remove("hidden");
+  mpPublish();
+  setInterval(() => mpPublish(), mp.local ? 15000 : 60000); // keep-alive
+}
+function emote(e) {
+  if (!EMOJI.includes(e) || performance.now() - (mp.lastEmo || 0) < 1200) return;
+  mp.lastEmo = performance.now();
+  if (!pipMode) setView(true);
+  mp.emo = e; mp.emoT = Date.now() + mp.offset;
+  emoteOn(bot, e); sfx.pop(); mpPublish();
 }
 
 // one finger: tap = go there, drag = turn the camera; two fingers: pinch = zoom; wheel = zoom
@@ -1414,6 +1551,9 @@ renderer.setAnimationLoop(() => {
 
 // ---------- toolbar ----------
 $("hintBtn").onclick = () => { sfx.pop(); openHint(); };
+$("emoBtn").onclick = () => { $("emoBar").classList.toggle("hidden"); sfx.pop(); };
+$("emoBar").innerHTML = EMOJI.map((e) => `<button aria-label="Send ${e}">${e}</button>`).join("");
+$("emoBar").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) { emote(b.textContent); $("emoBar").classList.add("hidden"); } });
 $("viewBtn").onclick = () => { sfx.pop(); setView(!pipMode); toast(pipMode ? "🤖 Tap anywhere and Pip flies there! Drag to look around." : "🗺️ Map view: drag to move, pinch to zoom.", 3500); };
 $("bookBtn").onclick = () => { sfx.pop(); openBook(); };
 $("homeBtn").onclick = () => { const i = state.byHandle.get(readMe()); if (i !== undefined) showHouse(i); };
@@ -1489,6 +1629,7 @@ setNightIcon(); setSoundIcon();
   }
   placeTreasure(); markMyHouse(); updateDot();
   placePip(); setView(pipMode);
+  mpConnect();
   // families who moved in today pop up out of the ground
   houses.forEach((h, i) => { if (h.t === TODAY.day && !h.pending) growHouse(i, 0.8 + Math.min(i, 30) * 0.12); });
   if (!qs.get("find") && !qs.get("claim")) {

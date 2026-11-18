@@ -54,6 +54,7 @@
 <nav id="tools" aria-label="Town tools">
   <button id="viewBtn" class="tool" aria-label="Switch to map view" title="Pip view / map view">🗺️</button>
   <button id="homeBtn" class="tool hidden" aria-label="Visit my house" title="My house">🏠</button>
+  <button id="emoBtn" class="tool hidden" aria-label="Wave to other visitors" title="Wave">👋</button>
   <button id="hintBtn" class="tool" aria-label="Today's hidden discovery" title="Today's discovery">🔎<i class="dot"></i></button>
   <button id="bookBtn" class="tool" aria-label="My Discovery Book" title="My Discovery Book">📖</button>
   <button id="nightBtn" class="tool" aria-label="Switch day and night" title="Day / night">🌙</button>
@@ -63,6 +64,8 @@
 
 <button id="ctaMobile" class="big">🏡 Get my free house</button>
 <div id="toast" class="panel hidden"></div>
+<div id="online" class="panel hidden" aria-live="polite"></div>
+<div id="emoBar" class="panel hidden" aria-label="Send a wave"></div>
 <div id="info" class="panel hidden"></div>
 
 <div id="modal" class="hidden">
@@ -91,6 +94,7 @@
     <li>We only show the <b>public Instagram @</b> of the grown-up who comments LAB. Nothing else.</li>
     <li>We never show children's names, photos, ages or schools. Please don't send them.</li>
     <li>This site has no sign-up, no tracking and no ads.</li>
+    <li>When you fly Pip, other visitors see a little robot move around, with your family's public @ if your house is built (otherwise "Visitor"). There is no chat: only 👋 ❤️ 🎉 style waves. Nothing is saved after you leave.</li>
     <li>Want your house removed? DM us <b>MOVE OUT</b> and it's gone within a day.</li>
   </ul>
 </template>

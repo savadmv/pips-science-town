@@ -120,6 +120,12 @@ button { font: inherit; cursor: pointer; color: inherit; }
   .tool { width: 44px; height: 44px; font-size: 20px; border-radius: 14px; }
   .book { grid-template-columns: repeat(3, 1fr); }
 }
+#online { position: fixed; top: 14px; left: 50%; transform: translateX(-50%); padding: 6px 14px; font-size: 14px; font-weight: 600; z-index: 9; white-space: nowrap; }
+#emoBar { position: fixed; top: 14px; right: 74px; display: flex; gap: 4px; padding: 6px; z-index: 12; }
+#emoBar button { width: 44px; height: 44px; font-size: 24px; border: 0; background: transparent; border-radius: 12px; }
+#emoBar button:active { background: var(--sun); }
+@media (max-width: 600px) { #online { top: 84px; left: 10px; transform: none; font-size: 13px; } #emoBar { top: 84px; right: 62px; } }
+body.film #online, body.film #emoBar,
 body.film #card, body.film #ctaMobile, body.film #toast, body.film #info, body.film #tools { display: none !important; }
 .confetti { position: fixed; top: -12px; width: 10px; height: 16px; border-radius: 3px; z-index: 40; pointer-events: none; animation: fall linear forwards; }
 @keyframes fall { to { top: 105vh; transform: translateX(40px) rotate(720deg); } }
