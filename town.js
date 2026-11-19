@@ -1378,8 +1378,10 @@ function emoteOn(group, e) {
   const sp = emojiSprite(e); sp.scale.set(1.6, 1.6, 1); sp.position.set(0, 5.4, 0); group.add(sp);
   tween(2.4, (k) => { sp.position.y = 5.4 + k * 2.2; sp.material.opacity = k > 0.7 ? (1 - k) / 0.3 : 1; sp.material.transparent = true; sp.scale.setScalar(1.6 * (k < 0.15 ? backOut(k / 0.15) : 1)); }, () => group.remove(sp));
 }
+const MP_STALE = 150000; // keep-alive is every 60 s; a record older than this is a ghost (missed onDisconnect)
+const isStale = (s) => !mp.local && Date.now() + mp.offset - num(s.ts, 0, 1e15) > MP_STALE;
 function upsertOther(id, s) {
-  if (!s || typeof s !== "object") return removeOther(id);
+  if (!s || typeof s !== "object" || isStale(s)) return removeOther(id);
   let o = mp.others.get(id);
   const name = okName(s.n);
   if (!o) {
@@ -1411,7 +1413,7 @@ anim.push((t, dt) => {
   if (!mp.others.size) return;
   const now = Date.now() + mp.offset, tgt = new THREE.Vector3();
   for (const [id, o] of mp.others) {
-    if (mp.local && NOW - o.seen > 45) { removeOther(id); continue; }
+    if ((mp.local && NOW - o.seen > 45) || isStale(o.s)) { removeOther(id); continue; }
     const s = o.s, d = num(s.d, 0, 10), h = num(s.h, 0, 30);
     const k = d > 0 ? Math.min(1, Math.max(0, (now - num(s.t0, 0, 1e15)) / (d * 1000))) : 1;
     tgt.set(num(s.x), 0, num(s.z)).lerp(new THREE.Vector3(num(s.tx), 0, num(s.tz)), ease(k));
@@ -1566,6 +1568,34 @@ $("musicBtn").onclick = () => { music.toggle(); setMusicIcon(); };
 setMusicIcon();
 setNightIcon(); setSoundIcon();
 
+
+// ---------- answer board (?a=key, sent by our DM auto-reply for "no-answer" Reels) ----------
+async function openAnswer(key) {
+  let ans = null;
+  try { ans = ((await (await fetch(`data/answers.json?v=${Date.now()}`, { cache: "no-store" })).json()).answers || {})[key]; } catch {}
+  const el = document.createElement("div");
+  el.className = "found";
+  const mk = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; n.textContent = text; return n; };
+  if (!ans) {
+    el.append(mk("div", "bigemoji", "🤔"), mk("h2", "", "Hmm, Pip can't find that answer."), mk("p", "", "Check the word in our message and try again!"));
+    openModal(el); return;
+  }
+  el.append(mk("div", "bigemoji", ans.e || "🎉"), mk("p", "q", ans.q), mk("h2", "", `The answer is… ${ans.a}`), mk("div", "fact", ans.why));
+  if (ans.try) el.append(mk("p", "", ans.try));
+  const mine = readMe();
+  const btn = mk("button", "big", mine ? "🏡 Visit my house" : "🏡 Get my FREE house in Pip's town");
+  btn.onclick = () => { $("modal").classList.add("hidden"); if (mine) find(mine); else openClaim(); };
+  const share = mk("button", "soft wide", "💌 Send this puzzle to a friend");
+  share.onclick = async () => {
+    const data = { title: "Pip's Brain-Teaser", text: `${ans.q} 🤔 Guess, then check the answer in Pip's Science Town!`, url: `${location.origin}${location.pathname}?a=${encodeURIComponent(key)}` };
+    try { if (navigator.share) await navigator.share(data); else { await navigator.clipboard.writeText(`${data.text} ${data.url}`); toast("Link copied! 💌"); } } catch {}
+  };
+  el.append(btn, share);
+  openModal(el);
+  confetti(); sfx.fanfare?.();
+  spotPlay.get("pip")?.();
+}
+
 // ---------- boot ----------
 (async () => {
   const qs = new URLSearchParams(location.search);
@@ -1632,13 +1662,14 @@ setNightIcon(); setSoundIcon();
   mpConnect();
   // families who moved in today pop up out of the ground
   houses.forEach((h, i) => { if (h.t === TODAY.day && !h.pending) growHouse(i, 0.8 + Math.min(i, 30) * 0.12); });
-  if (!qs.get("find") && !qs.get("claim")) {
+  if (!qs.get("find") && !qs.get("claim") && !qs.get("a")) {
     let seenTip = false;
     try { seenTip = localStorage.getItem("pst-tip") === "1"; localStorage.setItem("pst-tip", "1"); } catch {}
     if (!seenTip) setTimeout(() => toast(pipMode ? "🤖 Tap anywhere and Pip flies there! Tap houses and buildings to play." : "👆 Tap the buildings and houses. They do things!", 5000), 1500);
     if (!foundToday()) setTimeout(() => toast("✨ Pip hid something in town today… Tap 🔎 for a hint!", 5000), seenTip ? 1800 : 6500);
   }
-  if (qs.get("find")) setTimeout(() => find(qs.get("find")), 600);
+  if (qs.get("a")) setTimeout(() => openAnswer(String(qs.get("a")).toLowerCase().replace(/[^a-z0-9-]/g, "")), 700);
+  else if (qs.get("find")) setTimeout(() => find(qs.get("find")), 600);
   else if (qs.get("claim")) {
     // ManyChat buttons can pass the Instagram username: ?claim=their.name moves them in with no typing
     const h = norm(qs.get("claim"));

@@ -130,3 +130,4 @@ body.film #card, body.film #ctaMobile, body.film #toast, body.film #info, body.f
 .confetti { position: fixed; top: -12px; width: 10px; height: 16px; border-radius: 3px; z-index: 40; pointer-events: none; animation: fall linear forwards; }
 @keyframes fall { to { top: 105vh; transform: translateX(40px) rotate(720deg); } }
 #info .row { margin-top: 8px; }
+.found .q { font-size: 16px; font-weight: 600; margin: 0 0 4px; }
