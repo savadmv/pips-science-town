@@ -92,10 +92,10 @@ export function parseCode(code) {
   return d.r < ROOFS.length && d.w < WALLS.length && d.g < GADGETS.length && d.p < PETS.length ? d : null;
 }
 const designFor = (h) => {
-  const parsed = parseCode(h.d);
-  if (parsed) return parsed;
   const x = hash(h.h);
-  return { r: x % ROOFS.length, w: (x >>> 3) % WALLS.length, g: 1 + ((x >>> 6) % (GADGETS.length - 1)), p: (x >>> 9) % PETS.length };
+  const d = parseCode(h.d) || { r: x % ROOFS.length, w: (x >>> 3) % WALLS.length, g: 1 + ((x >>> 6) % (GADGETS.length - 1)), p: (x >>> 9) % PETS.length };
+  if (h.gold) d.gold = true; // prize: golden house (houses.json "gold": true)
+  return d;
 };
 const codeOf = (d) => `R${d.r}W${d.w}G${d.g}P${d.p}`;
 
@@ -112,8 +112,8 @@ const part = (k, g, c, p, s, r = [0, 0, 0]) => ({ k, g, c, m: new THREE.Matrix4(
 
 function houseParts(d) {
   const P = [
-    part("wall", "box", WALLS[d.w], [0, 0, 0], [3.4, 2.6, 3]),
-    part("roof", "roof", ROOFS[d.r], [0, 2.6, 0], [4.1, 1.8, 3.7]),
+    part("wall", "box", d.gold ? "#fff1c1" : WALLS[d.w], [0, 0, 0], [3.4, 2.6, 3]),
+    part("roof", "roof", d.gold ? "#ffc61a" : ROOFS[d.r], [0, 2.6, 0], [4.1, 1.8, 3.7]),
     part("x", "box", "#c75b4a", [1.0, 2.8, -0.5], [0.5, 1.2, 0.5]),
     part("x", "box", "#7a5534", [0, 0, 1.5], [0.8, 1.45, 0.12]),
     part("win", "box", "#bde7ff", [-1.05, 1.1, 1.5], [0.7, 0.7, 0.12]),
@@ -122,6 +122,7 @@ function houseParts(d) {
     part("win", "box", "#bde7ff", [0.8, 1.1, -1.5], [0.7, 0.7, 0.12]),
     part("x", "box", "#efe2c4", [0, 0, 1.6], [0.9, 0.06, 1.3]),
   ];
+  if (d.gold) P.push(part("x", "ball", "#ffd700", [0, 4.75, 0], [0.7, 0.7, 0.7]), part("x", "cyl", "#ffd700", [0, 4.3, 0], [0.12, 0.5, 0.12]));
   const gx = 2.15, gz = 1.6;
   const g0 = P.length;
   switch (d.g) {
@@ -1633,6 +1634,7 @@ async function openAnswer(key) {
       NOW = t;
       camera.position.set(...pos); controls.target.set(...tgt); camera.lookAt(controls.target);
       for (const f of anim) f(t, 1 / 30);
+      if (window.__onFrame) window.__onFrame(t);
       state.labels.forEach((s) => { s.visible = s.userData.big || camera.position.distanceTo(s.position) < 85; });
       renderer.render(scene, camera);
       return true;
@@ -1651,6 +1653,18 @@ async function openAnswer(key) {
       botShadow.position.set(x, 0.47, z); botShadow.scale.setScalar(1.25 / (1 + (y - 0.45) * 0.08));
       if (flying) burst(_lv.set(0, 0.2, -0.85).applyAxisAngle(_cv.set(0, 1, 0), ry).multiplyScalar(1.25).add(bot.position), { n: 3, colors: [C.sun, C.orange], speed: 0.6, up: -3, grav: 2, size: 0.35, life: 0.4, spread: 0.3, bounce: false });
     };
+    // extra robots for challenge Reels: __bot("red", "#ff6b6b", x, y, z, rotY, scale, visible, t)
+    const filmBots = new Map();
+    window.__bot = (key, col, x, y, z, ry = 0, sc = 1.25, vis = true, tt = 0) => {
+      let b = filmBots.get(key);
+      if (!b) { b = makeBot(col); scene.add(b.g); filmBots.set(key, b); }
+      b.g.visible = vis; if (!vis) return;
+      b.g.position.set(x, y, z); b.g.rotation.y = ry; b.g.scale.setScalar(sc);
+      b.body.rotation.x = 0.25; b.armL.rotation.z = 1.2; b.armR.rotation.z = -1.2;
+      b.body.position.y = Math.sin(tt * 9) * 0.08;
+      if (Math.random() < 0.8) burst(new THREE.Vector3(x, y + 0.2 * sc, z - 0.9 * sc), { n: 3, colors: [C.sun, C.orange], speed: 0.8, up: -3, grav: 2, size: 0.35 * sc / 1.25, life: 0.35, spread: 0.3, bounce: false });
+    };
+    window.__camera = camera;
     window.__treasure = (x, z, e) => { treasure = emojiSprite(e); treasure.position.set(x, 1.7, z); scene.add(treasure); anim.push((t) => { if (treasure) treasure.position.y = 1.7 + Math.sin(t * 2.5) * 0.35; }); };
     window.__collect = () => { if (!treasure) return; burst(treasure.position.clone(), { n: 60, colors: [C.sun, C.coral, C.teal, C.grape, C.sky], speed: 6, up: 8, grav: 10, size: 0.4, life: 1.6 }); scene.remove(treasure); treasure = null; };
     window.__night = (v, instant = false) => { nightOn = !!v; if (instant) { nf = v ? 1 : 0; applyNight(); } };
