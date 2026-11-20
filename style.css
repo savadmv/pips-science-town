@@ -84,6 +84,7 @@ button { font: inherit; cursor: pointer; color: inherit; }
   #ctaMobile { display: block; white-space: nowrap; position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); width: auto; margin: 0; padding: 10px 22px; z-index: 11; }
   #card:not(.collapsed) ~ #ctaMobile, body.info-open #ctaMobile { display: none; }
   #toast { bottom: 78px; }
+  body.info-open #toast { top: 130px; bottom: auto; left: 10px; transform: none; max-width: calc(100vw - 80px); } /* QA 20 Nov: never cover the info card */
   #card { top: 10px; left: 10px; padding: 10px 12px; }
   #card h1 { font-size: 19px; }
   #card .logo { width: 42px; height: 42px; }
@@ -131,3 +132,8 @@ body.film #card, body.film #ctaMobile, body.film #toast, body.film #info, body.f
 @keyframes fall { to { top: 105vh; transform: translateX(40px) rotate(720deg); } }
 #info .row { margin-top: 8px; }
 .found .q { font-size: 16px; font-weight: 600; margin: 0 0 4px; }
+/* QA 20 Nov: finger-sized tap targets (>= 44 px) without changing the look */
+.soft { min-height: 44px; }
+.icon { position: relative; }
+.icon::after { content: ""; position: absolute; inset: -7px; }
+#info .icon::after { inset: -8px; }
